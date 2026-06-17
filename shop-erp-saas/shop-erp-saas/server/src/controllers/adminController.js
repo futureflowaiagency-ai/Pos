@@ -1,0 +1,92 @@
+import { asyncHandler } from '../utils/asyncHandler.js';
+import { ApiError } from '../utils/ApiError.js';
+import { ok } from '../utils/apiResponse.js';
+import Payment from '../models/Payment.js';
+import Subscription, { PLANS } from '../models/Subscription.js';
+import Business from '../models/Business.js';
+import User from '../models/User.js';
+import { createOwnerWithBusiness, publicUser } from './authController.js';
+
+// @route GET /api/admin/overview
+export const adminOverview = asyncHandler(async (req, res) => {
+  const [businesses, owners, pendingPayments, activeSubs] = await Promise.all([
+    Business.countDocuments(),
+    User.countDocuments({ role: 'owner' }),
+    Payment.countDocuments({ status: 'pending' }),
+    Business.countDocuments({ subscriptionStatus: 'active' }),
+  ]);
+  ok(res, { overview: { businesses, owners, pendingPayments, activeSubs } });
+});
+
+// @route GET /api/admin/payments?status=pending
+export const listPayments = asyncHandler(async (req, res) => {
+  const q = {};
+  if (req.query.status) q.status = req.query.status;
+  const payments = await Payment.find(q)
+    .populate('business', 'name type')
+    .populate('submittedBy', 'name email')
+    .sort('-createdAt');
+  ok(res, { payments });
+});
+
+// @route PATCH /api/admin/payments/:id  body:{ action:'approve'|'reject', note }
+export const reviewPayment = asyncHandler(async (req, res) => {
+  const { action, note } = req.body;
+  const payment = await Payment.findById(req.params.id);
+  if (!payment) throw new ApiError(404, 'Payment not found');
+  if (payment.status !== 'pending') throw new ApiError(400, 'Already reviewed');
+
+  payment.reviewedBy = req.user._id;
+  payment.reviewNote = note;
+
+  if (action === 'approve') {
+    payment.status = 'approved';
+    const days = PLANS[payment.plan].days;
+    const business = await Business.findById(payment.business);
+    // extend from current expiry if still active, else from now
+    const base = business.subscriptionExpiry && business.subscriptionExpiry > new Date()
+      ? new Date(business.subscriptionExpiry) : new Date();
+    const endDate = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+
+    await Subscription.create({
+      business: business._id,
+      plan: payment.plan,
+      amount: payment.amount,
+      startDate: new Date(),
+      endDate,
+      status: 'active',
+    });
+    business.subscriptionStatus = 'active';
+    business.subscriptionExpiry = endDate;
+    await business.save();
+  } else if (action === 'reject') {
+    payment.status = 'rejected';
+  } else {
+    throw new ApiError(400, 'Invalid action');
+  }
+
+  await payment.save();
+  ok(res, { payment }, `Payment ${payment.status}`);
+});
+
+// @route GET /api/admin/businesses
+export const listBusinesses = asyncHandler(async (req, res) => {
+  const businesses = await Business.find().populate('owner', 'name email phone isActive').sort('-createdAt');
+  ok(res, { businesses });
+});
+
+// @route POST /api/admin/owners  (Super Admin creates an Owner + their shop)
+export const createOwner = asyncHandler(async (req, res) => {
+  const { user, business } = await createOwnerWithBusiness(req.body);
+  ok(res, { owner: publicUser(user), business }, 'Owner account created');
+});
+
+// @route PATCH /api/admin/businesses/:id/toggle  (enable/disable owner)
+export const toggleBusinessOwner = asyncHandler(async (req, res) => {
+  const business = await Business.findById(req.params.id);
+  if (!business) throw new ApiError(404, 'Business not found');
+  const owner = await User.findById(business.owner);
+  owner.isActive = !owner.isActive;
+  await owner.save();
+  ok(res, { ownerActive: owner.isActive }, 'Owner status toggled');
+});

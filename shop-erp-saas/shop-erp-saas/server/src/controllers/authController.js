@@ -1,0 +1,82 @@
+import mongoose from 'mongoose';
+import { asyncHandler } from '../utils/asyncHandler.js';
+import { ApiError } from '../utils/ApiError.js';
+import { ok, created } from '../utils/apiResponse.js';
+import { generateToken } from '../utils/generateToken.js';
+import { logActivity } from '../middleware/activityLogger.js';
+import User from '../models/User.js';
+import Business from '../models/Business.js';
+
+export const publicUser = (u) => ({
+  id: u._id,
+  name: u.name,
+  email: u.email,
+  phone: u.phone,
+  role: u.role,
+  business: u.business,
+  preferences: u.preferences,
+});
+
+// @desc Public self-registration is DISABLED.
+//       Owner accounts can only be created by a Super Admin (see adminController.createOwner).
+// @route POST /api/auth/register
+export const register = asyncHandler(async (req, res) => {
+  throw new ApiError(403, 'Public registration is disabled. Please contact the administrator to create an account.');
+});
+
+// Internal helper reused by the admin "create owner" flow.
+export const createOwnerWithBusiness = async ({ name, email, password, phone, businessName, businessType }) => {
+  if (!name || !email || !password || !businessName)
+    throw new ApiError(400, 'name, email, password and businessName are required');
+
+  const exists = await User.findOne({ email: email.toLowerCase() });
+  if (exists) throw new ApiError(409, 'Email already registered');
+
+  const session = await mongoose.startSession();
+  let user, business;
+  try {
+    await session.withTransaction(async () => {
+      [user] = await User.create([{ name, email, password, phone, role: 'owner' }], { session });
+      [business] = await Business.create(
+        [{ name: businessName, type: businessType || 'general', owner: user._id, phone }],
+        { session }
+      );
+      user.business = business._id;
+      await user.save({ session });
+    });
+  } finally {
+    session.endSession();
+  }
+  return { user, business };
+};
+
+// @desc Login
+// @route POST /api/auth/login
+export const login = asyncHandler(async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) throw new ApiError(400, 'Email and password required');
+
+  const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+  if (!user || !(await user.matchPassword(password))) throw new ApiError(401, 'Invalid credentials');
+  if (!user.isActive) throw new ApiError(403, 'Account disabled');
+
+  const token = generateToken({ id: user._id });
+  await logActivity({ ...req, user, businessId: user.business?.toString() }, { action: 'LOGIN', entity: 'User', entityId: user._id });
+  ok(res, { token, user: publicUser(user) }, 'Login successful');
+});
+
+// @desc Get current user
+// @route GET /api/auth/me
+export const getMe = asyncHandler(async (req, res) => {
+  const business = req.user.business ? await Business.findById(req.user.business) : null;
+  ok(res, { user: publicUser(req.user), business });
+});
+
+// @desc Update theme preference
+// @route PATCH /api/auth/preferences
+export const updatePreferences = asyncHandler(async (req, res) => {
+  const { theme } = req.body;
+  if (theme) req.user.preferences.theme = theme;
+  await req.user.save();
+  ok(res, { preferences: req.user.preferences }, 'Preferences updated');
+});

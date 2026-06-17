@@ -1,0 +1,41 @@
+import { Router } from 'express';
+import authRoutes from './authRoutes.js';
+import businessRoutes from './businessRoutes.js';
+import productRoutes from './productRoutes.js';
+import saleRoutes from './saleRoutes.js';
+import customerRoutes from './customerRoutes.js';
+import employeeRoutes from './employeeRoutes.js';
+import expenseRoutes from './expenseRoutes.js';
+import dashboardRoutes from './dashboardRoutes.js';
+import paymentRoutes from './paymentRoutes.js';
+import adminRoutes from './adminRoutes.js';
+import notificationRoutes from './notificationRoutes.js';
+import activityLogRoutes from './activityLogRoutes.js';
+import supplierRoutes from './supplierRoutes.js';
+import unitRoutes from './unitRoutes.js';
+import installmentRoutes from './installmentRoutes.js';
+import serviceRoutes from './serviceRoutes.js';
+
+const router = Router();
+
+// Modular mounting — add new modules here (plugin-like expansion).
+router.use('/auth', authRoutes);
+router.use('/business', businessRoutes);
+router.use('/products', productRoutes);
+router.use('/sales', saleRoutes);
+router.use('/customers', customerRoutes);
+router.use('/employees', employeeRoutes);
+router.use('/expenses', expenseRoutes);
+router.use('/dashboard', dashboardRoutes);
+router.use('/payments', paymentRoutes);
+router.use('/admin', adminRoutes);
+router.use('/notifications', notificationRoutes);
+router.use('/activity-logs', activityLogRoutes);
+router.use('/suppliers', supplierRoutes);
+router.use('/units', unitRoutes);
+router.use('/installments', installmentRoutes);
+router.use('/services', serviceRoutes);
+
+router.get('/health', (req, res) => res.json({ success: true, message: 'API healthy', ts: Date.now() }));
+
+export default router;

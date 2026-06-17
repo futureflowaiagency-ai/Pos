@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: light dark; }
+
+body {
+  @apply bg-slate-50 text-slate-800 dark:bg-slate-900 dark:text-slate-100;
+  font-family: 'Inter', 'Hind Siliguri', system-ui, sans-serif;
+}
+
+/* Reusable component classes */
+@layer components {
+  .card { @apply bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700; }
+  .btn { @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition focus:outline-none disabled:opacity-50; }
+  .btn-primary { @apply btn bg-brand-600 text-white hover:bg-brand-700; }
+  .btn-ghost { @apply btn bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600; }
+  .btn-danger { @apply btn bg-red-600 text-white hover:bg-red-700; }
+  .input { @apply w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-brand-500 outline-none; }
+  .label { @apply block text-sm font-medium mb-1 text-slate-600 dark:text-slate-300; }
+  .badge { @apply inline-flex px-2 py-0.5 rounded-full text-xs font-medium; }
+}
+
+/* ============ PRINT STYLES ============ */
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; left: 0; top: 0; width: 100%; }
+  .no-print { display: none !important; }
+}
+
+/* A4 print layout */
+.print-a4 {
+  width: 210mm;
+  min-height: 297mm;
+  padding: 15mm;
+  margin: 0 auto;
+  background: #fff;
+  color: #000;
+  font-size: 13px;
+}
+
+/* Thermal 80mm roll layout (pharmacy / POS) */
+.print-thermal {
+  width: 80mm;
+  padding: 4mm 3mm;
+  margin: 0 auto;
+  background: #fff;
+  color: #000;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.35;
+}
+.print-thermal h1, .print-thermal h2 { font-size: 13px; margin: 0; }
+.print-thermal table { width: 100%; border-collapse: collapse; }
+.print-thermal td { padding: 1px 0; vertical-align: top; }
+.thermal-divider { border-top: 1px dashed #000; margin: 4px 0; }
+
+@page { margin: 0; }
+@media print {
+  .print-thermal { width: 80mm; }
+}
