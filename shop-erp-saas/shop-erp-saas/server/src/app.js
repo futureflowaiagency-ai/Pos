@@ -9,6 +9,10 @@ import { notFound, errorHandler } from './middleware/error.js';
 
 const app = express();
 
+// Behind Nginx/reverse proxy on the VPS: trust the first proxy so rate-limiting
+// and req.ip see the real client IP from X-Forwarded-For.
+if (config.nodeEnv === 'production') app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(cors({ origin: config.clientUrl, credentials: true }));
 app.use(express.json({ limit: '2mb' }));
