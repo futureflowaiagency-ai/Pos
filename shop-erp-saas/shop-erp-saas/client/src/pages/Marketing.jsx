@@ -289,6 +289,7 @@ function Settings() {
           <h3 className="font-semibold flex items-center gap-2"><KeyRound size={16} /> AI Assistant</h3>
           <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={s.ai.enabled} onChange={(e) => setAi('enabled', e.target.checked)} /> Enabled</label>
         </div>
+        <p className="text-xs text-slate-400">AI already works for free — you can leave this blank. Only fill it in if you want to use your own paid OpenAI / Claude key.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div><label className="label">Provider</label>
             <select className="input" value={s.ai.provider} onChange={(e) => setAi('provider', e.target.value)}>

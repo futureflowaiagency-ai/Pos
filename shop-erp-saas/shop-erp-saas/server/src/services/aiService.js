@@ -1,8 +1,13 @@
 import Anthropic from '@anthropic-ai/sdk';
 
-// Drafts marketing copy using the shop owner's OWN AI key (they pay their own cost).
-// `ai` is the decrypted MarketingSettings.ai sub-document.
-// Returns plain text suitable for an SMS or email body.
+// AI text generation for the app (marketing copy + dashboard summary).
+//
+// Two ways to power it:
+//  1. CENTRAL FREE KEYS (platform-funded) — set GEMINI_API_KEY and/or GROQ_API_KEY
+//     in the server .env. Every shop then gets AI for free, no setup on their side.
+//     Both are tried in order, so if one is rate-limited/down the other takes over.
+//  2. BRING-YOUR-OWN — a shop may still save its own Anthropic/OpenAI key in
+//     Marketing settings; if present it is tried FIRST, then the central keys.
 
 const buildPrompt = ({ channel, instructions, businessName, tone }) => {
   const limit = channel === 'sms'
@@ -20,25 +25,24 @@ const buildPrompt = ({ channel, instructions, businessName, tone }) => {
   ].filter(Boolean).join('\n');
 };
 
-const generateAnthropic = async (ai, prompt, maxTokens) => {
-  const client = new Anthropic({ apiKey: ai.apiKey });
+// ---- per-provider callers ----
+
+const genAnthropic = async (cfg, prompt, maxTokens) => {
+  const client = new Anthropic({ apiKey: cfg.apiKey });
   const res = await client.messages.create({
-    model: ai.model || 'claude-opus-4-8',
+    model: cfg.model || 'claude-opus-4-8',
     max_tokens: maxTokens,
     messages: [{ role: 'user', content: prompt }],
   });
   return res.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
 };
 
-const generateOpenAI = async (ai, prompt, maxTokens) => {
+const genOpenAI = async (cfg, prompt, maxTokens) => {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${ai.apiKey}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: ai.model || 'gpt-4o-mini',
+      model: cfg.model || 'gpt-4o-mini',
       max_tokens: maxTokens,
       messages: [{ role: 'user', content: prompt }],
     }),
@@ -48,12 +52,76 @@ const generateOpenAI = async (ai, prompt, maxTokens) => {
   return (data.choices?.[0]?.message?.content || '').trim();
 };
 
-// Generic text generation using the shop owner's own AI key.
+// Groq is OpenAI-compatible — same shape, different host. Free tier, very fast.
+const genGroq = async (cfg, prompt, maxTokens) => {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: cfg.model || 'llama-3.3-70b-versatile',
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error?.message || `Groq responded ${res.status}`);
+  return (data.choices?.[0]?.message?.content || '').trim();
+};
+
+// Google Gemini — free tier (key from aistudio.google.com).
+const genGemini = async (cfg, prompt, maxTokens) => {
+  const model = cfg.model || 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cfg.apiKey}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { maxOutputTokens: maxTokens },
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error?.message || `Gemini responded ${res.status}`);
+  const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+  return text.trim();
+};
+
+const callers = { anthropic: genAnthropic, openai: genOpenAI, groq: genGroq, gemini: genGemini };
+
+// True if the platform has at least one central free key configured.
+export const hasCentralAI = () => !!(process.env.GEMINI_API_KEY || process.env.GROQ_API_KEY);
+
+// Ordered list of providers to attempt: shop's own key first (if any), then
+// the platform's free central keys (Gemini → Groq).
+const buildChain = (ai) => {
+  const chain = [];
+  if (ai?.apiKey && ai?.provider && callers[ai.provider]) {
+    chain.push({ provider: ai.provider, apiKey: ai.apiKey, model: ai.model });
+  }
+  if (process.env.GEMINI_API_KEY) {
+    chain.push({ provider: 'gemini', apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-2.0-flash' });
+  }
+  if (process.env.GROQ_API_KEY) {
+    chain.push({ provider: 'groq', apiKey: process.env.GROQ_API_KEY, model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile' });
+  }
+  return chain;
+};
+
+// Generic text generation with automatic provider fallback.
 export const generateText = async (ai, prompt, maxTokens = 1500) => {
-  if (!ai?.apiKey) throw new Error('AI key not configured');
-  return ai.provider === 'openai'
-    ? generateOpenAI(ai, prompt, maxTokens)
-    : generateAnthropic(ai, prompt, maxTokens);
+  const chain = buildChain(ai);
+  if (!chain.length) throw new Error('AI is not configured. Add a free Gemini/Groq key on the server, or your own key in Marketing settings.');
+  let lastErr;
+  for (const cfg of chain) {
+    try {
+      const out = await callers[cfg.provider](cfg, prompt, maxTokens);
+      if (out) return out;
+      lastErr = new Error('Empty AI response');
+    } catch (e) {
+      lastErr = e; // try the next provider in the chain
+    }
+  }
+  throw lastErr || new Error('All AI providers failed');
 };
 
 export const generateCopy = async (ai, opts) => generateText(ai, buildPrompt(opts), 1500);

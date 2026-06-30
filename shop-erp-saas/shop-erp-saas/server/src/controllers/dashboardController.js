@@ -10,7 +10,7 @@ import Employee from '../models/Employee.js';
 import ActivityLog from '../models/ActivityLog.js';
 import MarketingSettings from '../models/MarketingSettings.js';
 import { decryptSecret } from '../utils/secretCrypto.js';
-import { generateText } from '../services/aiService.js';
+import { generateText, hasCentralAI } from '../services/aiService.js';
 
 // @route GET /api/dashboard/summary
 export const dashboardSummary = asyncHandler(async (req, res) => {
@@ -93,7 +93,7 @@ export const dashboardSummary = asyncHandler(async (req, res) => {
 export const aiSummary = asyncHandler(async (req, res) => {
   const settings = await MarketingSettings.findOne({ business: req.businessId });
   const ai = settings?.ai ? { ...settings.ai.toObject(), apiKey: decryptSecret(settings.ai.apiKey) } : null;
-  if (!ai?.apiKey) throw new ApiError(400, 'Add your AI API key in Marketing → Integrations & Keys first');
+  if (!ai?.apiKey && !hasCentralAI()) throw new ApiError(400, 'AI is not configured. Add your AI API key in Marketing → Integrations & Keys first');
 
   const { summary = {}, topProducts = [] } = req.body;
   const top = topProducts.slice(0, 5).map((p) => `${p._id} (${p.qty} sold)`).join(', ') || 'none yet';

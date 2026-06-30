@@ -183,6 +183,11 @@ const bn = {
   'Manage your whole business in one place': 'আপনার পুরো ব্যবসা এক জায়গায় পরিচালনা করুন',
   'Accounts are created by the administrator.': 'অ্যাকাউন্ট অ্যাডমিনিস্ট্রেটর তৈরি করেন।',
   'Created by': 'তৈরি করেছে',
+
+  // ---- AI assistant ----
+  'AI Assistant': 'এআই অ্যাসিস্ট্যান্ট', Enabled: 'চালু', Model: 'মডেল',
+  'AI already works for free — you can leave this blank. Only fill it in if you want to use your own paid OpenAI / Claude key.':
+    'এআই এমনিতেই ফ্রি কাজ করে — এটা ফাঁকা রাখতে পারেন। নিজের পেইড OpenAI / Claude key ব্যবহার করতে চাইলেই কেবল এটা পূরণ করুন।',
 };
 
 const ATTRS = ['placeholder', 'title', 'alt', 'aria-label'];

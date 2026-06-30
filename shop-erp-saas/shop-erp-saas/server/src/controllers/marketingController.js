@@ -10,7 +10,7 @@ import Customer from '../models/Customer.js';
 import Business from '../models/Business.js';
 import { sendSms } from '../services/smsService.js';
 import { buildTransport, verifyEmail, sendEmail } from '../services/emailService.js';
-import { generateCopy } from '../services/aiService.js';
+import { generateCopy, hasCentralAI } from '../services/aiService.js';
 
 // ---------- helpers ----------
 
@@ -124,7 +124,7 @@ export const aiGenerate = asyncHandler(async (req, res) => {
   const { channel = 'sms', instructions, tone } = req.body;
   if (!instructions) throw new ApiError(400, 'Describe what the campaign is about');
   const cfg = decryptSettings(await getOrCreateSettings(req.businessId));
-  if (!cfg.ai.apiKey) throw new ApiError(400, 'Add your AI API key in Marketing settings first');
+  if (!cfg.ai.apiKey && !hasCentralAI()) throw new ApiError(400, 'AI is not configured. Add your own AI API key in Marketing settings.');
   const business = await Business.findById(req.businessId);
   const text = await generateCopy(cfg.ai, { channel, instructions, tone, businessName: business?.name });
   ok(res, { text });
