@@ -7,6 +7,7 @@ import Modal from '../components/ui/Modal.jsx';
 import Spinner from '../components/ui/Spinner.jsx';
 import { fmtDateTime } from '../utils/format.js';
 import { useConfirm } from '../context/ConfirmContext.jsx';
+import { useLang } from '../context/LanguageContext.jsx';
 
 const emptyCampaign = { name: '', channel: 'sms', audience: 'all', subject: '', body: '' };
 
@@ -43,6 +44,7 @@ const TabBtn = ({ active, onClick, children }) => (
 // ---------------- Campaigns ----------------
 
 function Campaigns({ confirm }) {
+  const { lang } = useLang();
   const [campaigns, setCampaigns] = useState([]);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState(emptyCampaign);
@@ -78,7 +80,7 @@ function Campaigns({ confirm }) {
     if (!aiBrief) return toast.error('Describe the campaign first');
     setAiLoading(true);
     try {
-      const { data } = await api.post('/marketing/ai/generate', { channel: form.channel, instructions: aiBrief, tone: aiTone });
+      const { data } = await api.post('/marketing/ai/generate', { channel: form.channel, instructions: aiBrief, tone: aiTone, lang });
       setForm((f) => ({ ...f, body: data.data.text }));
       toast.success('Draft generated');
     } catch (e) { toast.error(e.response?.data?.message || 'AI error'); }

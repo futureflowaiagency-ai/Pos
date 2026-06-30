@@ -95,10 +95,11 @@ export const aiSummary = asyncHandler(async (req, res) => {
   const ai = settings?.ai ? { ...settings.ai.toObject(), apiKey: decryptSecret(settings.ai.apiKey) } : null;
   if (!ai?.apiKey && !hasCentralAI()) throw new ApiError(400, 'AI is not configured. Add your AI API key in Marketing → Integrations & Keys first');
 
-  const { summary = {}, topProducts = [] } = req.body;
+  const { summary = {}, topProducts = [], lang = 'en' } = req.body;
   const top = topProducts.slice(0, 5).map((p) => `${p._id} (${p.qty} sold)`).join(', ') || 'none yet';
   const prompt = [
     'You are a concise business analyst for a small shop. Based on the numbers below, write a short, friendly summary (3-4 sentences max) highlighting how the business is doing this month and ONE practical suggestion. Plain text only, no markdown, no headings.',
+    lang === 'bn' ? 'Write the entire summary in Bengali (Bangla).' : '',
     '',
     `This month revenue: ${summary.monthRevenue ?? 0}`,
     `Net profit: ${summary.netProfit ?? 0} (expenses: ${summary.monthExpense ?? 0})`,

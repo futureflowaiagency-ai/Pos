@@ -9,7 +9,7 @@ import Anthropic from '@anthropic-ai/sdk';
 //  2. BRING-YOUR-OWN — a shop may still save its own Anthropic/OpenAI key in
 //     Marketing settings; if present it is tried FIRST, then the central keys.
 
-const buildPrompt = ({ channel, instructions, businessName, tone }) => {
+const buildPrompt = ({ channel, instructions, businessName, tone, lang }) => {
   const limit = channel === 'sms'
     ? 'Keep it under 300 characters (SMS-friendly). Plain text only — no markdown, no subject line.'
     : 'Write a short email body (a few short paragraphs). Plain text only — no subject line, no markdown headings.';
@@ -17,6 +17,7 @@ const buildPrompt = ({ channel, instructions, businessName, tone }) => {
     businessName ? `You are writing marketing copy for a shop called "${businessName}".` : 'You are writing marketing copy for a small shop.',
     `Channel: ${channel === 'sms' ? 'SMS' : 'Email'}.`,
     tone ? `Tone: ${tone}.` : '',
+    lang === 'bn' ? 'Write the message in Bengali (Bangla).' : '',
     `Use {{name}} as a placeholder where the customer's name should appear.`,
     limit,
     'Output ONLY the message text — no preamble, no explanation, no quotes.',

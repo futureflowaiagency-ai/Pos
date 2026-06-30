@@ -121,12 +121,12 @@ export const testEmail = asyncHandler(async (req, res) => {
 // ---------- AI copy ----------
 
 export const aiGenerate = asyncHandler(async (req, res) => {
-  const { channel = 'sms', instructions, tone } = req.body;
+  const { channel = 'sms', instructions, tone, lang = 'en' } = req.body;
   if (!instructions) throw new ApiError(400, 'Describe what the campaign is about');
   const cfg = decryptSettings(await getOrCreateSettings(req.businessId));
   if (!cfg.ai.apiKey && !hasCentralAI()) throw new ApiError(400, 'AI is not configured. Add your own AI API key in Marketing settings.');
   const business = await Business.findById(req.businessId);
-  const text = await generateCopy(cfg.ai, { channel, instructions, tone, businessName: business?.name });
+  const text = await generateCopy(cfg.ai, { channel, instructions, tone, businessName: business?.name, lang });
   ok(res, { text });
 });
 

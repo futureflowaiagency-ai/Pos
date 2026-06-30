@@ -8,10 +8,12 @@ import PaymentPie from '../components/charts/PaymentPie.jsx';
 import Spinner from '../components/ui/Spinner.jsx';
 import DataTable from '../components/ui/DataTable.jsx';
 import { taka, fmtDateTime } from '../utils/format.js';
+import { useLang } from '../context/LanguageContext.jsx';
 
 const niceAction = (s = '') => s.toLowerCase().replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 
 export default function Dashboard() {
+  const { lang } = useLang();
   const [data, setData] = useState(null);
   const [chart, setChart] = useState([]);
   const [aiText, setAiText] = useState('');
@@ -34,7 +36,7 @@ export default function Dashboard() {
   const genAiSummary = async () => {
     setAiLoading(true);
     try {
-      const { data: res } = await api.post('/dashboard/ai-summary', { summary: s, topProducts: data.topProducts });
+      const { data: res } = await api.post('/dashboard/ai-summary', { summary: s, topProducts: data.topProducts, lang });
       setAiText(res.data.summary);
     } catch (e) { toast.error(e.response?.data?.message || 'AI error'); }
     setAiLoading(false);
