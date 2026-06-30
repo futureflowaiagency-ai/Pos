@@ -36,6 +36,8 @@ export default function POS() {
   const [custName, setCustName] = useState('');
   const [matchedCustomer, setMatchedCustomer] = useState(null);
   const [customerNid, setCustomerNid] = useState('');
+  const [suggestions, setSuggestions] = useState([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
   // past-invoice lookup / reprint
   const [pastOpen, setPastOpen] = useState(false);
   const [findTerm, setFindTerm] = useState('');
@@ -61,21 +63,32 @@ export default function POS() {
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [search]);
   useEffect(() => { setHolds(readHolds(heldKey)); }, [heldKey]);
 
-  // As the phone is typed, look up an existing customer so dues attach to a real record.
+  // As the phone is typed, suggest matching customers (so dues attach to a real
+  // record). Clicking a suggestion fills both phone + name.
   useEffect(() => {
     const term = custPhone.trim();
-    if (term.length < 3) { setMatchedCustomer(null); return; }
+    if (term.length < 2) { setMatchedCustomer(null); setSuggestions([]); return; }
     const t = setTimeout(async () => {
       try {
         const { data } = await api.get('/customers', { params: { search: term } });
+        const list = data.data.customers || [];
+        setSuggestions(list);
         const norm = (s) => (s || '').replace(/\s/g, '');
-        const exact = data.data.customers.find((c) => norm(c.phone) === norm(term)) || null;
+        const exact = list.find((c) => norm(c.phone) === norm(term)) || null;
         setMatchedCustomer(exact);
         if (exact) setCustName((n) => n || exact.name);
       } catch { /* ignore */ }
-    }, 350);
+    }, 300);
     return () => clearTimeout(t);
   }, [custPhone]);
+
+  const pickCustomer = (c) => {
+    setCustPhone(c.phone || '');
+    setCustName(c.name || '');
+    setMatchedCustomer(c);
+    setSuggestOpen(false);
+    setSuggestions([]);
+  };
 
   // ---------- cart ops ----------
   const addToCart = (p) => {
@@ -280,9 +293,35 @@ export default function POS() {
 
         <div className="border-t border-slate-200 dark:border-slate-700 mt-3 pt-3 space-y-2 text-sm">
           <div className="grid grid-cols-2 gap-2">
-            <div>
+            <div className="relative">
               <label className="label">Customer Phone</label>
-              <input className="input" value={custPhone} onChange={(e) => setCustPhone(e.target.value)} placeholder="01XXXXXXXXX" />
+              <input
+                className="input"
+                value={custPhone}
+                onChange={(e) => { setCustPhone(e.target.value); setSuggestOpen(true); }}
+                onFocus={() => setSuggestOpen(true)}
+                onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
+                placeholder="01XXXXXXXXX"
+              />
+              {suggestOpen && suggestions.length > 0 && (
+                <div className="absolute z-30 mt-1 w-[200%] max-h-56 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg">
+                  {suggestions.map((c) => (
+                    <button
+                      key={c._id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => pickCustomer(c)}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-between gap-2"
+                    >
+                      <span className="truncate">
+                        <span className="font-medium">{c.name}</span>
+                        <span className="text-slate-400 ml-1">{c.phone}</span>
+                      </span>
+                      {c.totalDue > 0 && <span className="text-xs text-red-500 shrink-0">Due {taka(c.totalDue)}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label className="label">Customer Name</label>
