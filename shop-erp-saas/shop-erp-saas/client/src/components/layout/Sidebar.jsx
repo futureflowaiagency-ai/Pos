@@ -5,6 +5,7 @@ import {
   Truck, ShieldQuestion, CalendarClock, Wrench, Megaphone, Contact2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
+import { useLang } from '../../context/LanguageContext.jsx';
 
 // Links shown to every shop owner. Mobile-specific links are spliced in below.
 const baseLinks = [
@@ -31,6 +32,7 @@ const mobileLinks = [
 
 export default function Sidebar({ open, onClose }) {
   const { user, business } = useAuth();
+  const { t } = useLang();
   const isAdmin = user?.role === 'superadmin';
   const isMobile = business?.type === 'mobile';
 
@@ -48,19 +50,19 @@ export default function Sidebar({ open, onClose }) {
       <aside className={`no-print fixed lg:static z-50 h-full w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transition-transform ${open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
         <div className="flex items-center justify-between h-16 px-4 border-b border-slate-200 dark:border-slate-700">
           <div>
-            <h1 className="font-bold text-brand-600">Shop ERP</h1>
-            <p className="text-xs text-slate-400 truncate max-w-[150px]">{business?.name || 'Workspace'}</p>
+            <h1 className="font-bold text-brand-600">{t('Shop ERP')}</h1>
+            <p className="text-xs text-slate-400 truncate max-w-[150px]">{business?.name || t('Workspace')}</p>
           </div>
           <button onClick={onClose} className="lg:hidden btn-ghost p-1"><X size={18} /></button>
         </div>
 
         <nav className="p-3 space-y-1 overflow-y-auto">
           {isAdmin ? (
-            <NavLink to="/admin" className={navClass}><ShieldCheck size={18} /> Admin Panel</NavLink>
+            <NavLink to="/admin" className={navClass}><ShieldCheck size={18} /> {t('Admin Panel')}</NavLink>
           ) : (
             ownerLinks.map((l) => (
               <NavLink key={l.to} to={l.to} end={l.end} className={navClass} onClick={onClose}>
-                <l.icon size={18} /> {l.label}
+                <l.icon size={18} /> {t(l.label)}
               </NavLink>
             ))
           )}
