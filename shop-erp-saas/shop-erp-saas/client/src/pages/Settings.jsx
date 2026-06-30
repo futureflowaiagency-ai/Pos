@@ -137,12 +137,6 @@ export default function Settings() {
         <h3 className="font-semibold">Preferences</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div><label className="label">Low Stock Threshold</label><input className="input" type="number" value={form.settings.lowStockThreshold} onChange={(e) => setS('lowStockThreshold', e.target.value)} /></div>
-          <div><label className="label">Default Print Mode</label>
-            <select className="input" value={form.settings.printMode} onChange={(e) => setS('printMode', e.target.value)}>
-              <option value="a4">A4</option>
-              <option value="thermal">Thermal (80mm)</option>
-            </select>
-          </div>
         </div>
         <div className="flex items-center justify-between pt-2">
           <span className="label !mb-0">Theme</span>

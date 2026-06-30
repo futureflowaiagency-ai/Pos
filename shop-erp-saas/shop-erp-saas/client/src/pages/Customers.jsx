@@ -6,7 +6,6 @@ import DataTable from '../components/ui/DataTable.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import PrintWrapper from '../components/print/PrintWrapper.jsx';
 import DueReceipt from '../components/print/DueReceipt.jsx';
-import InvoiceA4 from '../components/print/InvoiceA4.jsx';
 import ThermalReceipt from '../components/print/ThermalReceipt.jsx';
 import { taka, fmtDateTime } from '../utils/format.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -24,7 +23,6 @@ export default function Customers() {
   const [printDue, setPrintDue] = useState(null);
   // reprint a past invoice from a customer's history (unlimited times)
   const [printSale, setPrintSale] = useState(null);
-  const [printMode, setPrintMode] = useState(business?.type === 'pharmacy' ? 'thermal' : 'a4');
 
   const load = async () => { const { data } = await api.get('/customers'); setCustomers(data.data.customers); };
   useEffect(() => { load(); }, []);
@@ -121,13 +119,7 @@ export default function Customers() {
 
       {/* Invoice reprint from history */}
       <PrintWrapper open={!!printSale} onClose={() => setPrintSale(null)} title="Invoice">
-        <div className="no-print bg-white p-2 flex gap-2 justify-center">
-          <button className={`btn ${printMode === 'a4' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPrintMode('a4')}>A4</button>
-          <button className={`btn ${printMode === 'thermal' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPrintMode('thermal')}>Thermal 80mm</button>
-        </div>
-        {printSale && (printMode === 'a4'
-          ? <InvoiceA4 sale={printSale} business={business} />
-          : <ThermalReceipt sale={printSale} business={business} />)}
+        {printSale && <ThermalReceipt sale={printSale} business={business} />}
       </PrintWrapper>
     </div>
   );

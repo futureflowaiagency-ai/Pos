@@ -5,7 +5,6 @@ import api from '../api/axios.js';
 import DataTable from '../components/ui/DataTable.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import PrintWrapper from '../components/print/PrintWrapper.jsx';
-import ServiceInvoice from '../components/print/ServiceInvoice.jsx';
 import ServiceThermal from '../components/print/ServiceThermal.jsx';
 import { taka, fmtDateTime } from '../utils/format.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -31,7 +30,6 @@ export default function Services() {
   const [editId, setEditId] = useState(null);
   // customer service invoice to print / reprint (unlimited times)
   const [printJob, setPrintJob] = useState(null);
-  const [printMode, setPrintMode] = useState('a4'); // 'a4' | 'thermal'
 
   const load = async () => {
     const { data } = await api.get('/services', { params: { search, status: statusFilter || undefined } });
@@ -147,13 +145,7 @@ export default function Services() {
 
       {/* Customer service invoice — print / reprint */}
       <PrintWrapper open={!!printJob} onClose={() => setPrintJob(null)} title="Service Invoice">
-        <div className="no-print bg-white p-2 flex gap-2 justify-center">
-          <button className={`btn ${printMode === 'a4' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPrintMode('a4')}>A4</button>
-          <button className={`btn ${printMode === 'thermal' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPrintMode('thermal')}>Thermal 80mm</button>
-        </div>
-        {printJob && (printMode === 'a4'
-          ? <ServiceInvoice job={printJob} business={business} />
-          : <ServiceThermal job={printJob} business={business} />)}
+        {printJob && <ServiceThermal job={printJob} business={business} />}
       </PrintWrapper>
     </div>
   );

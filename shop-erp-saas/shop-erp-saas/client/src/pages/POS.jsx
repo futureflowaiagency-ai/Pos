@@ -6,7 +6,6 @@ import { taka, fmtDateTime } from '../utils/format.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import PrintWrapper from '../components/print/PrintWrapper.jsx';
-import InvoiceA4 from '../components/print/InvoiceA4.jsx';
 import ThermalReceipt from '../components/print/ThermalReceipt.jsx';
 
 // effective unit price after the product's percentage discount
@@ -50,7 +49,6 @@ export default function POS() {
   const [method, setMethod] = useState('cash');
   const [lastSale, setLastSale] = useState(null);
   const [showPrint, setShowPrint] = useState(false);
-  const [printMode, setPrintMode] = useState(business?.type === 'pharmacy' ? 'thermal' : 'a4');
   // hold-cart state
   const [holds, setHolds] = useState([]);
   const [holdsOpen, setHoldsOpen] = useState(false);
@@ -475,13 +473,7 @@ export default function POS() {
 
       {/* Print preview */}
       <PrintWrapper open={showPrint} onClose={() => setShowPrint(false)} title="Invoice">
-        <div className="no-print bg-white p-2 flex gap-2 justify-center">
-          <button className={`btn ${printMode === 'a4' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPrintMode('a4')}>A4</button>
-          <button className={`btn ${printMode === 'thermal' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPrintMode('thermal')}>Thermal 80mm</button>
-        </div>
-        {printMode === 'a4'
-          ? <InvoiceA4 sale={lastSale} business={business} />
-          : <ThermalReceipt sale={lastSale} business={business} />}
+        <ThermalReceipt sale={lastSale} business={business} />
       </PrintWrapper>
     </div>
   );
