@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2, Wallet, Pencil, Eye, Search, ChevronLeft, ChevronRight, Power, X, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios.js';
+import { uploadImage } from '../api/upload.js';
 import DataTable from '../components/ui/DataTable.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import PrintWrapper from '../components/print/PrintWrapper.jsx';
@@ -82,14 +83,20 @@ export default function Employees() {
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
-  const onPhoto = (e) => {
+  const onPhoto = async (e) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     if (!file.type.startsWith('image/')) return toast.error('Please choose an image file');
-    if (file.size > 1.5 * 1024 * 1024) return toast.error('Image too large (max 1.5MB)');
-    const reader = new FileReader();
-    reader.onload = () => setForm((f) => ({ ...f, photo: reader.result }));
-    reader.readAsDataURL(file);
+    if (file.size > 3 * 1024 * 1024) return toast.error('Image too large (max 3MB)');
+    const t = toast.loading('Uploading photo...');
+    try {
+      const url = await uploadImage(file, 'employee'); // stored on Cloudinary
+      setForm((f) => ({ ...f, photo: url }));
+      toast.success('Photo uploaded', { id: t });
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Upload failed', { id: t });
+    }
   };
 
   const openNew = () => { setForm(emptyForm); setEditId(null); setModal(true); };

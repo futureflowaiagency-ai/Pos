@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# ============================================================================
+# Auto-deploy hook for Shop ERP SaaS
+# Runs ON THE VPS automatically after every `git push vps main` from your PC.
+#
+# Install location on the VPS:  <bare-repo>/hooks/post-receive
+#   e.g.  ~/repos/shop.git/hooks/post-receive
+# Make it executable:  chmod +x ~/repos/shop.git/hooks/post-receive
+# ============================================================================
+set -euo pipefail
+
+# ---- CONFIG: edit this ONE line to match your VPS ----------------------------
+# WORKTREE = the folder that CONTAINS the `shop-erp-saas` directory.
+# Example: if your app lives at  /home/ubuntu/Pos/shop-erp-saas/shop-erp-saas
+#          then set WORKTREE to  /home/ubuntu/Pos
+WORKTREE="$HOME/Pos"
+BRANCH="main"
+# -----------------------------------------------------------------------------
+
+GIT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+APP="$WORKTREE/shop-erp-saas/shop-erp-saas"
+
+while read -r _old _new ref; do
+  [ "$ref" = "refs/heads/$BRANCH" ] || continue
+
+  echo "==> Deploying '$BRANCH' into $WORKTREE"
+  mkdir -p "$WORKTREE"
+  # checkout -f overwrites tracked files only; your untracked .env files are kept.
+  git --work-tree="$WORKTREE" --git-dir="$GIT_DIR" checkout -f "$BRANCH"
+
+  echo "==> API: installing production deps + (re)starting PM2"
+  cd "$APP/server"
+  npm install --omit=dev
+  pm2 restart shop-api 2>/dev/null || pm2 start src/server.js --name shop-api
+  pm2 save
+
+  echo "==> Client: installing deps + building static SPA"
+  cd "$APP/client"
+  npm install
+  npm run build
+
+  echo "==> Deploy complete ✅  (reload Nginx manually only if you changed its config)"
+done

@@ -15,6 +15,8 @@ import supplierRoutes from './supplierRoutes.js';
 import unitRoutes from './unitRoutes.js';
 import installmentRoutes from './installmentRoutes.js';
 import serviceRoutes from './serviceRoutes.js';
+import uploadRoutes from './uploadRoutes.js';
+import marketingRoutes from './marketingRoutes.js';
 
 const router = Router();
 
@@ -35,6 +37,8 @@ router.use('/suppliers', supplierRoutes);
 router.use('/units', unitRoutes);
 router.use('/installments', installmentRoutes);
 router.use('/services', serviceRoutes);
+router.use('/upload', uploadRoutes);
+router.use('/marketing', marketingRoutes);
 
 router.get('/health', (req, res) => res.json({ success: true, message: 'API healthy', ts: Date.now() }));
 

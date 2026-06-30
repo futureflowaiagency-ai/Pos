@@ -17,7 +17,7 @@ export default function Customers() {
   const confirm = useConfirm();
   const [customers, setCustomers] = useState([]);
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState({ name: '', phone: '', address: '', nid: '' });
+  const [form, setForm] = useState({ name: '', phone: '', email: '', address: '', nid: '' });
   const [history, setHistory] = useState(null);
   const [dueModal, setDueModal] = useState(null);
   const [dueAmount, setDueAmount] = useState(0);
@@ -30,7 +30,7 @@ export default function Customers() {
   useEffect(() => { load(); }, []);
 
   const save = async () => {
-    try { await api.post('/customers', form); toast.success('Added'); setModal(false); setForm({ name: '', phone: '', address: '', nid: '' }); load(); }
+    try { await api.post('/customers', form); toast.success('Added'); setModal(false); setForm({ name: '', phone: '', email: '', address: '', nid: '' }); load(); }
     catch (e) { toast.error(e.response?.data?.message || 'Error'); }
   };
   const del = async (c) => {
@@ -81,6 +81,7 @@ export default function Customers() {
         <div className="space-y-3">
           <div><label className="label">Name</label><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
           <div><label className="label">Phone</label><input className="input" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
+          <div><label className="label">Email <span className="text-xs text-slate-400">(for email campaigns)</span></label><input className="input" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="customer@example.com" /></div>
           <div><label className="label">NID / Identity</label><input className="input" value={form.nid} onChange={(e) => setForm({ ...form, nid: e.target.value })} placeholder="National ID (optional)" /></div>
           <div><label className="label">Address</label><input className="input" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></div>
         </div>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Save, Moon, Sun, ImagePlus, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios.js';
+import { uploadImage } from '../api/upload.js';
 import Spinner from '../components/ui/Spinner.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
@@ -45,15 +46,20 @@ export default function Settings() {
   const set = (k, v) => setForm({ ...form, [k]: v });
   const setS = (k, v) => setForm({ ...form, settings: { ...form.settings, [k]: v } });
 
-  const onLogoPick = (e) => {
+  const onLogoPick = async (e) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     if (!file.type.startsWith('image/')) return toast.error('Please choose an image file');
-    if (file.size > 1024 * 1024) return toast.error('Logo must be under 1 MB');
-    const reader = new FileReader();
-    reader.onload = () => set('logoUrl', reader.result); // stored as a data URL
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    if (file.size > 3 * 1024 * 1024) return toast.error('Logo must be under 3 MB');
+    const t = toast.loading('Uploading logo...');
+    try {
+      const url = await uploadImage(file, 'logo'); // stored on Cloudinary
+      set('logoUrl', url);
+      toast.success('Logo uploaded', { id: t });
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Upload failed', { id: t });
+    }
   };
 
   return (
@@ -86,7 +92,7 @@ export default function Settings() {
                     <Trash2 size={16} /> Remove
                   </button>
                 )}
-                <p className="text-xs text-slate-400">PNG/JPG, shown on invoices & receipts. Max 1 MB.</p>
+                <p className="text-xs text-slate-400">PNG/JPG, shown on invoices & receipts. Max 3 MB.</p>
               </div>
             </div>
           </div>

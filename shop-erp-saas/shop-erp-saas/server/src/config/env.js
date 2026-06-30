@@ -8,4 +8,12 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET || 'dev_secret_change_me',
   jwtExpire: process.env.JWT_EXPIRE || '30d',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
+  cloudinary: {
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME || '',
+    apiKey: process.env.CLOUDINARY_API_KEY || '',
+    apiSecret: process.env.CLOUDINARY_API_SECRET || '',
+  },
+  // Secret used to encrypt tenant-supplied credentials (SMS/SMTP/AI keys) at rest.
+  // Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+  encryptionKey: process.env.ENCRYPTION_KEY || 'dev_encryption_key_change_me_please',
 };

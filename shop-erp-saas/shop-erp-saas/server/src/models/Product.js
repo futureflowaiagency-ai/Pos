@@ -4,6 +4,7 @@ const productSchema = new mongoose.Schema(
   {
     business: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
     name: { type: String, required: true, trim: true },
+    imageUrl: { type: String, default: '' }, // product photo (stored on Cloudinary)
     sku: { type: String, trim: true },
     category: { type: String, trim: true, default: 'General' },
     unit: { type: String, default: 'pcs' },
