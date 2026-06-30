@@ -117,6 +117,10 @@ export const warrantyCheck = asyncHandler(async (req, res) => {
       customerName: unit.customerName,
       warrantyMonths: unit.warrantyMonths,
       warrantyExpiry: unit.warrantyExpiry,
+      warrantyBrandMonths: unit.warrantyBrandMonths,
+      warrantyShopMonths: unit.warrantyShopMonths,
+      warrantyBrandExpiry: unit.warrantyBrandExpiry,
+      warrantyShopExpiry: unit.warrantyShopExpiry,
       warrantyStatus: unit.status !== 'sold' ? 'not_sold' : (active ? 'active' : 'expired'),
     },
   });

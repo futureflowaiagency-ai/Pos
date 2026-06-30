@@ -56,20 +56,30 @@ export const createSale = asyncHandler(async (req, res) => {
           if (String(unit.product) !== String(product._id)) throw new ApiError(400, 'Unit does not match product');
 
           line.qty = 1;
-          const wMonths = Math.max(product.warrantyBrandMonths || 0, product.warrantyShopMonths || 0);
-          const wExpiry = wMonths > 0 ? new Date(Date.now() + wMonths * 30 * 24 * 60 * 60 * 1000) : null;
+          const MONTH = 30 * 24 * 60 * 60 * 1000;
+          const now = Date.now();
+          const brandMonths = product.warrantyBrandMonths || 0;
+          const shopMonths = product.warrantyShopMonths || 0;
+          const brandExpiry = brandMonths > 0 ? new Date(now + brandMonths * MONTH) : null;
+          const shopExpiry = shopMonths > 0 ? new Date(now + shopMonths * MONTH) : null;
+          const wMonths = Math.max(brandMonths, shopMonths);            // effective (legacy)
+          const wExpiry = wMonths > 0 ? new Date(now + wMonths * MONTH) : null;
           line.unit = unit._id;
           line.imei1 = unit.imei1;
           line.imei2 = unit.imei2;
           line.serial = unit.serial;
           line.warrantyMonths = wMonths;
           line.warrantyExpiry = wExpiry;
+          line.warrantyBrandMonths = brandMonths;
+          line.warrantyShopMonths = shopMonths;
+          line.warrantyBrandExpiry = brandExpiry;
+          line.warrantyShopExpiry = shopExpiry;
 
           subTotal += unitPrice;
           profit += unitPrice - product.purchasePrice;
           product.stock = Math.max(0, product.stock - 1);
           await product.save({ session });
-          soldUnits.push({ unit, warrantyMonths: wMonths, warrantyExpiry: wExpiry, sellingPrice: unitPrice });
+          soldUnits.push({ unit, warrantyMonths: wMonths, warrantyExpiry: wExpiry, brandMonths, shopMonths, brandExpiry, shopExpiry, sellingPrice: unitPrice });
         } else {
           // standard quantity-based line
           if (product.stock < it.qty) throw new ApiError(400, `Insufficient stock for ${product.name}`);
@@ -131,6 +141,10 @@ export const createSale = asyncHandler(async (req, res) => {
         su.unit.customerName = customerName;
         su.unit.warrantyMonths = su.warrantyMonths;
         su.unit.warrantyExpiry = su.warrantyExpiry;
+        su.unit.warrantyBrandMonths = su.brandMonths;
+        su.unit.warrantyShopMonths = su.shopMonths;
+        su.unit.warrantyBrandExpiry = su.brandExpiry;
+        su.unit.warrantyShopExpiry = su.shopExpiry;
         await su.unit.save({ session });
       }
     });

@@ -74,6 +74,8 @@ const bn = {
   Value: 'মূল্য', Website: 'ওয়েবসাইট', 'TRX ID': 'টিআরএক্স আইডি', 'Emp ID': 'কর্মচারী আইডি',
   When: 'কখন', 'With / about': 'সম্পর্কে', Status: 'স্ট্যাটাস', Warranty: 'ওয়ারেন্টি',
   'Warranty Until': 'ওয়ারেন্টি পর্যন্ত', 'Sold On': 'বিক্রির তারিখ', 'Sold To': 'বিক্রি হয়েছে',
+  'Brand Warranty': 'ব্র্যান্ড ওয়ারেন্টি', 'Shop Warranty': 'দোকান ওয়ারেন্টি',
+  'Brand Warranty Until': 'ব্র্যান্ড ওয়ারেন্টি পর্যন্ত', 'Shop Warranty Until': 'দোকান ওয়ারেন্টি পর্যন্ত',
   Serial: 'সিরিয়াল', Mobile: 'মোবাইল', 'Monthly Salary': 'মাসিক বেতন',
   'Joining Date': 'যোগদানের তারিখ', Designation: 'পদবি', Department: 'বিভাগ', Gender: 'লিঙ্গ',
   'Date of Birth': 'জন্ম তারিখ', 'Emergency Contact': 'জরুরি যোগাযোগ', 'Employee ID': 'কর্মচারী আইডি',

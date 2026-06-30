@@ -61,8 +61,19 @@ export default function Warranty() {
             <Field label="Status" value={result.status === 'sold' ? 'Sold' : 'In stock'} />
             <Field label="Sold On" value={result.soldAt ? fmtDate(result.soldAt) : '—'} />
             <Field label="Sold To" value={result.customerName || '—'} />
-            <Field label="Warranty" value={result.warrantyMonths ? `${result.warrantyMonths} months` : '—'} />
-            <Field label="Warranty Until" value={result.warrantyExpiry ? fmtDate(result.warrantyExpiry) : '—'} />
+            {(result.warrantyBrandMonths || result.warrantyShopMonths) ? (
+              <>
+                <Field label="Brand Warranty" value={result.warrantyBrandMonths ? `${result.warrantyBrandMonths} months` : '—'} />
+                <Field label="Brand Warranty Until" value={result.warrantyBrandExpiry ? fmtDate(result.warrantyBrandExpiry) : '—'} />
+                <Field label="Shop Warranty" value={result.warrantyShopMonths ? `${result.warrantyShopMonths} months` : '—'} />
+                <Field label="Shop Warranty Until" value={result.warrantyShopExpiry ? fmtDate(result.warrantyShopExpiry) : '—'} />
+              </>
+            ) : (
+              <>
+                <Field label="Warranty" value={result.warrantyMonths ? `${result.warrantyMonths} months` : '—'} />
+                <Field label="Warranty Until" value={result.warrantyExpiry ? fmtDate(result.warrantyExpiry) : '—'} />
+              </>
+            )}
           </dl>
         </div>
       )}

@@ -16,6 +16,10 @@ const saleItemSchema = new mongoose.Schema(
     serial: { type: String, default: '' },
     warrantyMonths: { type: Number, default: 0 }, // combined/effective warranty months
     warrantyExpiry: { type: Date, default: null },
+    warrantyBrandMonths: { type: Number, default: 0 },
+    warrantyShopMonths: { type: Number, default: 0 },
+    warrantyBrandExpiry: { type: Date, default: null },
+    warrantyShopExpiry: { type: Date, default: null },
   },
   { _id: false }
 );

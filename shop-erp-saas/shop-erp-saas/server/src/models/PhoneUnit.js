@@ -17,8 +17,13 @@ const phoneUnitSchema = new mongoose.Schema(
     soldPrice: { type: Number, default: 0 },
     customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', default: null },
     customerName: { type: String, default: '' },
-    warrantyMonths: { type: Number, default: 0 },
+    warrantyMonths: { type: Number, default: 0 },   // effective (max of brand/shop) — kept for legacy displays
     warrantyExpiry: { type: Date, default: null },
+    // brand (manufacturer) and shop warranties tracked separately
+    warrantyBrandMonths: { type: Number, default: 0 },
+    warrantyShopMonths: { type: Number, default: 0 },
+    warrantyBrandExpiry: { type: Date, default: null },
+    warrantyShopExpiry: { type: Date, default: null },
   },
   { timestamps: true }
 );
