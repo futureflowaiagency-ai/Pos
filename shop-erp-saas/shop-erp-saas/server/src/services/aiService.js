@@ -20,17 +20,17 @@ const buildPrompt = ({ channel, instructions, businessName, tone }) => {
   ].filter(Boolean).join('\n');
 };
 
-const generateAnthropic = async (ai, prompt) => {
+const generateAnthropic = async (ai, prompt, maxTokens) => {
   const client = new Anthropic({ apiKey: ai.apiKey });
   const res = await client.messages.create({
     model: ai.model || 'claude-opus-4-8',
-    max_tokens: 1500,
+    max_tokens: maxTokens,
     messages: [{ role: 'user', content: prompt }],
   });
   return res.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
 };
 
-const generateOpenAI = async (ai, prompt) => {
+const generateOpenAI = async (ai, prompt, maxTokens) => {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -39,7 +39,7 @@ const generateOpenAI = async (ai, prompt) => {
     },
     body: JSON.stringify({
       model: ai.model || 'gpt-4o-mini',
-      max_tokens: 1500,
+      max_tokens: maxTokens,
       messages: [{ role: 'user', content: prompt }],
     }),
   });
@@ -48,8 +48,12 @@ const generateOpenAI = async (ai, prompt) => {
   return (data.choices?.[0]?.message?.content || '').trim();
 };
 
-export const generateCopy = async (ai, opts) => {
+// Generic text generation using the shop owner's own AI key.
+export const generateText = async (ai, prompt, maxTokens = 1500) => {
   if (!ai?.apiKey) throw new Error('AI key not configured');
-  const prompt = buildPrompt(opts);
-  return ai.provider === 'openai' ? generateOpenAI(ai, prompt) : generateAnthropic(ai, prompt);
+  return ai.provider === 'openai'
+    ? generateOpenAI(ai, prompt, maxTokens)
+    : generateAnthropic(ai, prompt, maxTokens);
 };
+
+export const generateCopy = async (ai, opts) => generateText(ai, buildPrompt(opts), 1500);

@@ -1,15 +1,21 @@
 import { useEffect, useState } from 'react';
-import { DollarSign, TrendingUp, Package, AlertTriangle, ShoppingBag, Users } from 'lucide-react';
+import { DollarSign, TrendingUp, Package, AlertTriangle, ShoppingBag, Users, Trophy, Receipt, Activity, Sparkles } from 'lucide-react';
+import toast from 'react-hot-toast';
 import api from '../api/axios.js';
 import StatCard from '../components/ui/StatCard.jsx';
 import RevenueChart from '../components/charts/RevenueChart.jsx';
+import PaymentPie from '../components/charts/PaymentPie.jsx';
 import Spinner from '../components/ui/Spinner.jsx';
 import DataTable from '../components/ui/DataTable.jsx';
-import { taka } from '../utils/format.js';
+import { taka, fmtDateTime } from '../utils/format.js';
+
+const niceAction = (s = '') => s.toLowerCase().replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [chart, setChart] = useState([]);
+  const [aiText, setAiText] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -24,6 +30,15 @@ export default function Dashboard() {
 
   if (!data) return <Spinner />;
   const s = data.summary;
+
+  const genAiSummary = async () => {
+    setAiLoading(true);
+    try {
+      const { data: res } = await api.post('/dashboard/ai-summary', { summary: s, topProducts: data.topProducts });
+      setAiText(res.data.summary);
+    } catch (e) { toast.error(e.response?.data?.message || 'AI error'); }
+    setAiLoading(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -40,8 +55,54 @@ export default function Dashboard() {
         <StatCard icon={ShoppingBag} label="Month Orders" value={s.monthSalesCount} accent="green" />
       </div>
 
+      {/* AI Summary */}
+      <div className="card p-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h3 className="font-semibold flex items-center gap-2"><Sparkles size={18} className="text-brand-600" /> AI Business Summary</h3>
+          <button className="btn-ghost" disabled={aiLoading} onClick={genAiSummary}>
+            <Sparkles size={15} /> {aiLoading ? 'Analyzing…' : aiText ? 'Regenerate' : 'Generate summary'}
+          </button>
+        </div>
+        <p className="text-sm text-slate-600 dark:text-slate-300 mt-3 leading-relaxed whitespace-pre-line">
+          {aiText || 'Click “Generate summary” for an AI insight on this month’s performance (uses your own AI key from Marketing → Integrations).'}
+        </p>
+      </div>
+
+      {/* Revenue + Payment pie */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2"><RevenueChart data={chart} /></div>
+        <PaymentPie data={data.paymentBreakdown} />
+      </div>
+
+      {/* Top sellers + Recent orders + Low stock */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="card p-4">
+          <h3 className="font-semibold mb-3 flex items-center gap-2"><Trophy size={18} className="text-amber-500" /> Top Selling Products</h3>
+          <DataTable
+            columns={[
+              { key: '_id', label: 'Product' },
+              { key: 'qty', label: 'Sold', className: 'text-right', render: (r) => <span className="font-semibold">{r.qty}</span> },
+              { key: 'revenue', label: 'Revenue', className: 'text-right', render: (r) => taka(r.revenue) },
+            ]}
+            rows={data.topProducts}
+            empty="No sales this month"
+          />
+        </div>
+
+        <div className="card p-4">
+          <h3 className="font-semibold mb-3 flex items-center gap-2"><Receipt size={18} className="text-brand-600" /> Recent Orders</h3>
+          <DataTable
+            columns={[
+              { key: 'invoiceNo', label: 'Invoice' },
+              { key: 'customerName', label: 'Customer' },
+              { key: 'paymentMethod', label: 'Pay', render: (r) => <span className="text-xs uppercase font-semibold text-slate-500">{r.paymentMethod}</span> },
+              { key: 'total', label: 'Total', className: 'text-right', render: (r) => taka(r.total) },
+            ]}
+            rows={data.recentOrders}
+            empty="No orders yet"
+          />
+        </div>
+
         <div className="card p-4">
           <h3 className="font-semibold mb-3 flex items-center gap-2"><AlertTriangle size={18} className="text-amber-500" /> Low Stock Alert</h3>
           <DataTable
@@ -53,6 +114,21 @@ export default function Dashboard() {
             empty="All stocked up ✅"
           />
         </div>
+      </div>
+
+      {/* Recent activities */}
+      <div className="card p-4">
+        <h3 className="font-semibold mb-3 flex items-center gap-2"><Activity size={18} className="text-brand-600" /> Recent Activities</h3>
+        {data.recentActivities?.length ? (
+          <ul className="divide-y divide-slate-100 dark:divide-slate-700">
+            {data.recentActivities.map((a, i) => (
+              <li key={i} className="py-2 flex items-center justify-between text-sm">
+                <span><span className="font-medium">{niceAction(a.action)}</span>{a.entity ? <span className="text-slate-400"> · {a.entity}</span> : null}</span>
+                <span className="text-slate-400 text-xs">{a.user} · {fmtDateTime(a.createdAt)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-sm text-slate-400">No recent activity</p>}
       </div>
     </div>
   );
