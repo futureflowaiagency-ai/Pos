@@ -157,6 +157,8 @@ const bn = {
   'No invoices yet': 'এখনো কোনো ইনভয়েস নেই', 'No phone': 'ফোন নেই', 'No customer': 'কোনো গ্রাহক নেই',
   'Customer name and phone are required': 'গ্রাহকের নাম ও ফোন প্রয়োজন',
   'Customer name': 'গ্রাহকের নাম',
+  'Matching devices (IMEI / serial)': 'মিলে যাওয়া ডিভাইস (আইএমইআই / সিরিয়াল)',
+  'Search products or IMEI / serial...': 'পণ্য বা আইএমইআই / সিরিয়াল খুঁজুন...',
 
   // ---- Products ----
   'Product Image': 'পণ্যের ছবি', 'Selling Price': 'বিক্রয় মূল্য', 'Purchase Price': 'ক্রয় মূল্য',

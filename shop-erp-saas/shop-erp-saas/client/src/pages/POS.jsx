@@ -29,6 +29,7 @@ export default function POS() {
   const heldKey = `pos_holds_${business?._id || business?.id || 'default'}`;
 
   const [products, setProducts] = useState([]);
+  const [unitResults, setUnitResults] = useState([]); // IMEI/serial matches (mobile)
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState([]);
   // customer (walk-in removed — phone + name are required, matched to a record)
@@ -59,6 +60,15 @@ export default function POS() {
   const load = async () => {
     const { data } = await api.get('/products', { params: { search } });
     setProducts(data.data.products);
+    // For mobile shops, also match in-stock devices by IMEI / serial.
+    if (isMobile && search.trim()) {
+      try {
+        const u = await api.get('/units', { params: { status: 'in_stock', search: search.trim() } });
+        setUnitResults(u.data.data.units);
+      } catch { setUnitResults([]); }
+    } else {
+      setUnitResults([]);
+    }
   };
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [search]);
   useEffect(() => { setHolds(readHolds(heldKey)); }, [heldKey]);
@@ -104,20 +114,24 @@ export default function POS() {
     });
   };
 
+  // Add one specific serial-tracked device (by IMEI/serial) to the cart.
+  const pushUnit = (u) => {
+    const p = u.product;
+    setCart((c) => {
+      if (c.some((i) => i.unitId === u._id)) { toast.error('Device already in cart'); return c; }
+      return [...c, {
+        _id: p._id, name: p.name, sellingPrice: p.sellingPrice, discountPercent: p.discountPercent || 0,
+        qty: 1, unitId: u._id, imei1: u.imei1, imei2: u.imei2, serial: u.serial,
+      }];
+    });
+  };
+
   const addByImei = async () => {
     const term = imei.trim();
     if (!term) return;
     try {
       const { data } = await api.get('/units/lookup', { params: { imei: term } });
-      const u = data.data.unit;
-      const p = u.product;
-      setCart((c) => {
-        if (c.some((i) => i.unitId === u._id)) { toast.error('Device already in cart'); return c; }
-        return [...c, {
-          _id: p._id, name: p.name, sellingPrice: p.sellingPrice, discountPercent: p.discountPercent || 0,
-          qty: 1, unitId: u._id, imei1: u.imei1, imei2: u.imei2, serial: u.serial,
-        }];
-      });
+      pushUnit(data.data.unit);
       setImei('');
     } catch (e) { toast.error(e.response?.data?.message || 'Device not found'); }
   };
@@ -240,8 +254,24 @@ export default function POS() {
 
         <div className="relative">
           <Search size={18} className="absolute left-3 top-2.5 text-slate-400" />
-          <input className="input pl-10" placeholder="Search products to add..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input className="input pl-10" placeholder={isMobile ? 'Search products or IMEI / serial...' : 'Search products to add...'} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
+
+        {isMobile && unitResults.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-slate-400">Matching devices (IMEI / serial)</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {unitResults.map((u) => (
+                <button key={u._id} onClick={() => pushUnit(u)} className="card p-3 text-left hover:ring-2 hover:ring-brand-500 transition">
+                  <p className="font-medium text-sm truncate">{u.product?.name || 'Device'}</p>
+                  <p className="text-brand-600 font-bold">{taka(unitPrice({ sellingPrice: u.product?.sellingPrice || 0, discountPercent: u.product?.discountPercent || 0 }))}</p>
+                  <p className="text-xs text-brand-500 truncate">IMEI: {u.imei1 || u.serial}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-[60vh] overflow-y-auto pr-1">
           {products.map((p) => (
             <button key={p._id} onClick={() => addToCart(p)} className="card p-3 text-left hover:ring-2 hover:ring-brand-500 transition">
