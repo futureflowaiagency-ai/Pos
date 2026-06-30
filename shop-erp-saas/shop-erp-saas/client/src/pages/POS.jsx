@@ -31,9 +31,17 @@ export default function POS() {
   const [products, setProducts] = useState([]);
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState([]);
-  const [customers, setCustomers] = useState([]);
-  const [customer, setCustomer] = useState('');
+  // customer (walk-in removed — phone + name are required, matched to a record)
+  const [custPhone, setCustPhone] = useState('');
+  const [custName, setCustName] = useState('');
+  const [matchedCustomer, setMatchedCustomer] = useState(null);
   const [customerNid, setCustomerNid] = useState('');
+  // past-invoice lookup / reprint
+  const [pastOpen, setPastOpen] = useState(false);
+  const [findTerm, setFindTerm] = useState('');
+  const [foundCustomers, setFoundCustomers] = useState([]);
+  const [pastCustomer, setPastCustomer] = useState(null);
+  const [pastSales, setPastSales] = useState([]);
   const [discount, setDiscount] = useState(0);
   const [paid, setPaid] = useState(0);
   const [method, setMethod] = useState('cash');
@@ -51,8 +59,23 @@ export default function POS() {
     setProducts(data.data.products);
   };
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [search]);
-  useEffect(() => { api.get('/customers').then(({ data }) => setCustomers(data.data.customers)); }, []);
   useEffect(() => { setHolds(readHolds(heldKey)); }, [heldKey]);
+
+  // As the phone is typed, look up an existing customer so dues attach to a real record.
+  useEffect(() => {
+    const term = custPhone.trim();
+    if (term.length < 3) { setMatchedCustomer(null); return; }
+    const t = setTimeout(async () => {
+      try {
+        const { data } = await api.get('/customers', { params: { search: term } });
+        const norm = (s) => (s || '').replace(/\s/g, '');
+        const exact = data.data.customers.find((c) => norm(c.phone) === norm(term)) || null;
+        setMatchedCustomer(exact);
+        if (exact) setCustName((n) => n || exact.name);
+      } catch { /* ignore */ }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [custPhone]);
 
   // ---------- cart ops ----------
   const addToCart = (p) => {
@@ -96,7 +119,7 @@ export default function POS() {
     return { ...i, qty: q };
   }));
   const removeItem = (key) => setCart((c) => c.filter((i) => lineKey(i) !== key));
-  const resetSale = () => { setCart([]); setDiscount(0); setPaid(0); setCustomer(''); setCustomerNid(''); };
+  const resetSale = () => { setCart([]); setDiscount(0); setPaid(0); setCustPhone(''); setCustName(''); setMatchedCustomer(null); setCustomerNid(''); };
 
   const subTotal = cart.reduce((s, i) => s + unitPrice(i) * Number(i.qty || 0), 0);
   const total = Math.max(0, subTotal - Number(discount || 0));
@@ -105,12 +128,11 @@ export default function POS() {
   // ---------- hold / resume ----------
   const holdCart = () => {
     if (!cart.length) return toast.error('Cart is empty');
-    const cName = customers.find((c) => c._id === customer)?.name || 'Walk-in';
     const entry = {
       id: Date.now().toString(),
       heldAt: new Date().toISOString(),
-      customerName: cName,
-      customer, customerNid, discount, paid, method,
+      customerName: custName || custPhone || 'No customer',
+      custPhone, custName, customerNid, discount, paid, method,
       itemCount: cart.reduce((s, i) => s + i.qty, 0),
       cart,
     };
@@ -122,13 +144,27 @@ export default function POS() {
 
   const resumeHold = (h) => {
     if (cart.length && !confirm('Resuming will replace the current cart. Continue?')) return;
-    setCart(h.cart); setCustomer(h.customer || ''); setCustomerNid(h.customerNid || '');
+    setCart(h.cart); setCustPhone(h.custPhone || ''); setCustName(h.custName || ''); setCustomerNid(h.customerNid || '');
     setDiscount(h.discount || 0); setPaid(h.paid || 0); setMethod(h.method || 'cash');
     const next = holds.filter((x) => x.id !== h.id);
     setHolds(next); writeHolds(heldKey, next);
     setHoldsOpen(false);
     toast.success('Cart resumed');
   };
+
+  // ---------- past invoices (search by phone/name, reprint) ----------
+  const findCustomers = async () => {
+    if (!findTerm.trim()) return;
+    const { data } = await api.get('/customers', { params: { search: findTerm.trim() } });
+    setFoundCustomers(data.data.customers);
+    setPastCustomer(null); setPastSales([]);
+  };
+  const openHistory = async (c) => {
+    const { data } = await api.get(`/customers/${c._id}/history`);
+    setPastCustomer(data.data.customer);
+    setPastSales(data.data.sales);
+  };
+  const reprint = (sale) => { setLastSale(sale); setPastOpen(false); setShowPrint(true); };
 
   const deleteHold = (id) => {
     const next = holds.filter((x) => x.id !== id);
@@ -139,13 +175,16 @@ export default function POS() {
   const checkout = async () => {
     if (!cart.length) return toast.error('Cart is empty');
     if (cart.some((i) => !i.unitId && Number(i.qty) <= 0)) return toast.error('Enter a valid quantity');
+    if (!custPhone.trim() || !custName.trim()) return toast.error('Customer name and phone are required');
     try {
       const { data } = await api.post('/sales', {
         items: cart.map((i) => i.unitId ? { product: i._id, qty: 1, unit: i.unitId } : { product: i._id, qty: Number(i.qty) }),
         discount: Number(discount || 0),
         paid: Number(paid || 0) || total,
         paymentMethod: method,
-        customer: customer || null,
+        customer: matchedCustomer?._id || null,
+        customerName: custName.trim(),
+        customerPhone: custPhone.trim(),
         customerNid: isMobile ? customerNid : '',
       });
       setLastSale(data.data.sale);
@@ -162,9 +201,14 @@ export default function POS() {
       <div className="lg:col-span-2 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <h1 className="text-2xl font-bold">POS / New Sale</h1>
-          <button className="btn-ghost" onClick={() => setHoldsOpen(true)}>
-            <ListChecks size={16} /> Held Bills {holds.length > 0 && <span className="badge bg-amber-100 text-amber-700">{holds.length}</span>}
-          </button>
+          <div className="flex gap-2">
+            <button className="btn-ghost" onClick={() => setPastOpen(true)}>
+              <Printer size={16} /> Past Invoices
+            </button>
+            <button className="btn-ghost" onClick={() => setHoldsOpen(true)}>
+              <ListChecks size={16} /> Held Bills {holds.length > 0 && <span className="badge bg-amber-100 text-amber-700">{holds.length}</span>}
+            </button>
+          </div>
         </div>
 
         {isMobile && (
@@ -235,13 +279,21 @@ export default function POS() {
         </div>
 
         <div className="border-t border-slate-200 dark:border-slate-700 mt-3 pt-3 space-y-2 text-sm">
-          <div>
-            <label className="label">Customer (optional)</label>
-            <select className="input" value={customer} onChange={(e) => setCustomer(e.target.value)}>
-              <option value="">Walk-in</option>
-              {customers.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
-            </select>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="label">Customer Phone</label>
+              <input className="input" value={custPhone} onChange={(e) => setCustPhone(e.target.value)} placeholder="01XXXXXXXXX" />
+            </div>
+            <div>
+              <label className="label">Customer Name</label>
+              <input className="input" value={custName} onChange={(e) => setCustName(e.target.value)} placeholder="Customer name" />
+            </div>
           </div>
+          {matchedCustomer && (
+            <p className="text-xs text-green-600">
+              ✓ Existing customer{matchedCustomer.totalDue > 0 ? ` • current due ${taka(matchedCustomer.totalDue)}` : ''}
+            </p>
+          )}
           {isMobile && (
             <div>
               <label className="label">Customer NID / Identity</label>
@@ -292,6 +344,62 @@ export default function POS() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </Modal>
+
+      {/* Past invoices — search by phone/name and reprint */}
+      <Modal open={pastOpen} onClose={() => setPastOpen(false)} title="Past Invoices" size="lg">
+        <div className="flex gap-2 mb-3">
+          <input
+            className="input"
+            placeholder="Search by phone or name…"
+            value={findTerm}
+            onChange={(e) => setFindTerm(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') findCustomers(); }}
+          />
+          <button className="btn-primary shrink-0" onClick={findCustomers}><Search size={16} /> Search</button>
+        </div>
+
+        {!pastCustomer ? (
+          foundCustomers.length === 0 ? (
+            <p className="text-slate-400 text-center py-6 text-sm">Search a customer by phone number or name.</p>
+          ) : (
+            <div className="space-y-2">
+              {foundCustomers.map((c) => (
+                <button key={c._id} onClick={() => openHistory(c)}
+                  className="w-full flex items-center justify-between gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700 hover:ring-2 hover:ring-brand-500 text-left">
+                  <div>
+                    <p className="font-medium">{c.name}</p>
+                    <p className="text-xs text-slate-400">{c.phone || 'No phone'}</p>
+                  </div>
+                  {c.totalDue > 0 && <span className="text-xs text-red-500">Due {taka(c.totalDue)}</span>}
+                </button>
+              ))}
+            </div>
+          )
+        ) : (
+          <div>
+            <button className="btn-ghost mb-2" onClick={() => setPastCustomer(null)}>← Back</button>
+            <div className="mb-2">
+              <p className="font-semibold">{pastCustomer.name}</p>
+              <p className="text-xs text-slate-400">{pastCustomer.phone}{pastCustomer.totalDue > 0 ? ` • Due ${taka(pastCustomer.totalDue)}` : ''}</p>
+            </div>
+            {pastSales.length === 0 ? (
+              <p className="text-slate-400 text-center py-6 text-sm">No invoices yet</p>
+            ) : (
+              <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+                {pastSales.map((s) => (
+                  <div key={s._id} className="flex items-center justify-between gap-3 p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <div>
+                      <p className="font-medium text-sm">{s.invoiceNo}</p>
+                      <p className="text-xs text-slate-400">{fmtDateTime(s.createdAt)} • {taka(s.total)}{s.due > 0 ? ` • due ${taka(s.due)}` : ''}</p>
+                    </div>
+                    <button className="btn-ghost" onClick={() => reprint(s)}><Printer size={15} /> Reprint</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </Modal>

@@ -151,6 +151,12 @@ const bn = {
   'Discounted Price': 'ছাড়কৃত মূল্য', Items: 'আইটেমসমূহ', 'Item / Description': 'আইটেম / বিবরণ',
   'Amount to collect': 'আদায়ের পরিমাণ', 'Current Status': 'বর্তমান স্ট্যাটাস',
   'Amount:': 'পরিমাণ:', 'Current due:': 'বর্তমান বাকি:', 'In stock:': 'স্টকে:',
+  'Past Invoices': 'পুরোনো ইনভয়েস', Reprint: 'পুনরায় প্রিন্ট', Search: 'খুঁজুন', Back: 'ফিরে যান',
+  'Search by phone or name…': 'ফোন বা নাম দিয়ে খুঁজুন…',
+  'Search a customer by phone number or name.': 'ফোন নম্বর বা নাম দিয়ে গ্রাহক খুঁজুন।',
+  'No invoices yet': 'এখনো কোনো ইনভয়েস নেই', 'No phone': 'ফোন নেই', 'No customer': 'কোনো গ্রাহক নেই',
+  'Customer name and phone are required': 'গ্রাহকের নাম ও ফোন প্রয়োজন',
+  'Customer name': 'গ্রাহকের নাম',
 
   // ---- Products ----
   'Product Image': 'পণ্যের ছবি', 'Selling Price': 'বিক্রয় মূল্য', 'Purchase Price': 'ক্রয় মূল্য',

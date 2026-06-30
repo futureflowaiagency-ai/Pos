@@ -13,10 +13,13 @@ const genInvoiceNo = () =>
   'INV-' + Date.now().toString().slice(-8) + '-' + Math.floor(Math.random() * 90 + 10);
 
 // @route POST /api/sales  (POS checkout)
-// body: { items:[{product, qty, unit?}], discount, paid, paymentMethod, customer, customerNid }
+// body: { items:[{product, qty, unit?}], discount, paid, paymentMethod, customer, customerName, customerPhone, customerNid }
 export const createSale = asyncHandler(async (req, res) => {
-  const { items = [], discount = 0, paid = 0, paymentMethod = 'cash', customer = null, customerNid = '' } = req.body;
+  const { items = [], discount = 0, paid = 0, paymentMethod = 'cash', customer = null, customerName: reqName = '', customerPhone = '', customerNid = '' } = req.body;
   if (!items.length) throw new ApiError(400, 'No items in sale');
+  // Walk-in is removed: a sale must always be tied to a customer (by id, or by name + phone).
+  if (!customer && !(String(reqName).trim() && String(customerPhone).trim()))
+    throw new ApiError(400, 'Customer name and phone are required');
 
   const session = await mongoose.startSession();
   let sale;
@@ -81,25 +84,34 @@ export const createSale = asyncHandler(async (req, res) => {
 
       const total = Math.max(0, subTotal - discount);
       const due = Math.max(0, total - paid);
-      let customerName = 'Walk-in';
-      let nid = customerNid || '';
 
-      if (customer) {
-        const cust = await Customer.findOne(tenantFilter(req, { _id: customer })).session(session);
-        if (cust) {
-          customerName = cust.name;
-          if (!nid) nid = cust.nid || '';
-          // backfill NID on the customer record if newly captured at sale time
-          if (customerNid && !cust.nid) { cust.nid = customerNid; }
-          if (due > 0) cust.totalDue += due;
-          await cust.save({ session });
-        }
+      // Resolve the customer — find an existing one (by id or phone) or create a
+      // new record on the fly. This keeps dues attached and lets old invoices be
+      // looked up by phone number later.
+      let custDoc = null;
+      if (customer) custDoc = await Customer.findOne(tenantFilter(req, { _id: customer })).session(session);
+      if (!custDoc && customerPhone) custDoc = await Customer.findOne(tenantFilter(req, { phone: String(customerPhone).trim() })).session(session);
+      if (!custDoc && (reqName || customerPhone)) {
+        [custDoc] = await Customer.create([{
+          business: req.businessId,
+          name: String(reqName).trim() || 'Customer',
+          phone: String(customerPhone).trim(),
+          nid: customerNid || '',
+        }], { session });
+      }
+
+      const customerName = custDoc?.name || String(reqName).trim() || 'Walk-in';
+      const nid = customerNid || custDoc?.nid || '';
+      if (custDoc) {
+        if (customerNid && !custDoc.nid) custDoc.nid = customerNid; // backfill NID captured at sale
+        if (due > 0) custDoc.totalDue += due;
+        await custDoc.save({ session });
       }
 
       [sale] = await Sale.create([{
         business: req.businessId,
         invoiceNo: genInvoiceNo(),
-        customer: customer || null,
+        customer: custDoc?._id || null,
         customerName,
         customerNid: nid,
         items: lineItems,
@@ -115,7 +127,7 @@ export const createSale = asyncHandler(async (req, res) => {
         su.unit.sale = sale._id;
         su.unit.soldAt = sale.createdAt || new Date();
         su.unit.soldPrice = su.sellingPrice;
-        su.unit.customer = customer || null;
+        su.unit.customer = custDoc?._id || null;
         su.unit.customerName = customerName;
         su.unit.warrantyMonths = su.warrantyMonths;
         su.unit.warrantyExpiry = su.warrantyExpiry;
