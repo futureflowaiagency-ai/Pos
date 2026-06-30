@@ -17,6 +17,7 @@ import installmentRoutes from './installmentRoutes.js';
 import serviceRoutes from './serviceRoutes.js';
 import uploadRoutes from './uploadRoutes.js';
 import marketingRoutes from './marketingRoutes.js';
+import crmRoutes from './crmRoutes.js';
 
 const router = Router();
 
@@ -39,6 +40,7 @@ router.use('/installments', installmentRoutes);
 router.use('/services', serviceRoutes);
 router.use('/upload', uploadRoutes);
 router.use('/marketing', marketingRoutes);
+router.use('/crm', crmRoutes);
 
 router.get('/health', (req, res) => res.json({ success: true, message: 'API healthy', ts: Date.now() }));
 

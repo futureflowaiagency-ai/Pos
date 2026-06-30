@@ -18,6 +18,7 @@ import Warranty from './pages/Warranty.jsx';
 import Installments from './pages/Installments.jsx';
 import Services from './pages/Services.jsx';
 import Marketing from './pages/Marketing.jsx';
+import CRM from './pages/CRM.jsx';
 import AdminPanel from './pages/admin/AdminPanel.jsx';
 
 export default function App() {
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/installments" element={<Installments />} />
         <Route path="/services" element={<Services />} />
         <Route path="/marketing" element={<Marketing />} />
+        <Route path="/crm" element={<CRM />} />
       </Route>
 
       <Route element={<AdminRoute><Layout /></AdminRoute>}>
