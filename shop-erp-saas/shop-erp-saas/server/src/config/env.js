@@ -16,4 +16,15 @@ export const config = {
   // Secret used to encrypt tenant-supplied credentials (SMS/SMTP/AI keys) at rest.
   // Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
   encryptionKey: process.env.ENCRYPTION_KEY || 'dev_encryption_key_change_me_please',
+  // Platform "system" mailbox — used for system emails like the password-change
+  // verification code. Typically a Gmail address with an App Password.
+  systemMail: {
+    host: process.env.SMTP_HOST || '',
+    port: process.env.SMTP_PORT || 587,
+    secure: process.env.SMTP_SECURE === 'true', // true for port 465
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+    from: process.env.SMTP_FROM || '',
+    fromName: process.env.SMTP_FROM_NAME || 'Shop ERP',
+  },
 };

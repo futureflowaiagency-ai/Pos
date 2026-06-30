@@ -184,6 +184,19 @@ const bn = {
   'Accounts are created by the administrator.': 'অ্যাকাউন্ট অ্যাডমিনিস্ট্রেটর তৈরি করেন।',
   'Created by': 'তৈরি করেছে',
 
+  // ---- Change password ----
+  'Change Password': 'পাসওয়ার্ড পরিবর্তন', 'Account Email': 'অ্যাকাউন্ট ইমেইল',
+  'Send Code': 'কোড পাঠান', 'Resend Code': 'আবার কোড পাঠান', 'Verification Code': 'যাচাই কোড',
+  'New Password': 'নতুন পাসওয়ার্ড', 'Confirm Password': 'পাসওয়ার্ড নিশ্চিত করুন',
+  '6-digit code': '৬-অঙ্কের কোড',
+  "We'll email a 6-digit code to your account email to confirm it's you, then you can set a new password.":
+    'আপনি যে আপনি তা নিশ্চিত করতে আপনার অ্যাকাউন্ট ইমেইলে একটি ৬-অঙ্কের কোড পাঠাব, তারপর নতুন পাসওয়ার্ড দিতে পারবেন।',
+  'Verification code sent to your email': 'যাচাই কোড আপনার ইমেইলে পাঠানো হয়েছে',
+  'Password changed successfully': 'পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে',
+  'Passwords do not match': 'পাসওয়ার্ড মিলছে না',
+  'Password must be at least 6 characters': 'পাসওয়ার্ড অন্তত ৬ অক্ষরের হতে হবে',
+  'Enter the 6-digit code': '৬-অঙ্কের কোড লিখুন', 'Enter your account email': 'আপনার অ্যাকাউন্ট ইমেইল লিখুন',
+
   // ---- AI assistant ----
   'AI Assistant': 'এআই অ্যাসিস্ট্যান্ট', Enabled: 'চালু', Model: 'মডেল',
   'AI already works for free — you can leave this blank. Only fill it in if you want to use your own paid OpenAI / Claude key.':

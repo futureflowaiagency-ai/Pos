@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { register, login, getMe, updatePreferences } from '../controllers/authController.js';
+import { register, login, getMe, updatePreferences, requestPasswordCode, changePasswordWithCode } from '../controllers/authController.js';
 import { protect } from '../middleware/auth.js';
 
 const router = Router();
@@ -18,4 +18,6 @@ router.post('/register', authLimiter, register);
 router.post('/login', authLimiter, login);
 router.get('/me', protect, getMe);
 router.patch('/preferences', protect, updatePreferences);
+router.post('/password/request-code', protect, authLimiter, requestPasswordCode);
+router.post('/password/change', protect, authLimiter, changePasswordWithCode);
 export default router;

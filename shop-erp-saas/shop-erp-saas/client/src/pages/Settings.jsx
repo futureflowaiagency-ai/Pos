@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Save, Moon, Sun, ImagePlus, Trash2 } from 'lucide-react';
+import { Save, Moon, Sun, ImagePlus, Trash2, KeyRound } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios.js';
 import { uploadImage } from '../api/upload.js';
@@ -8,10 +8,44 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 
 export default function Settings() {
-  const { business, refresh } = useAuth();
+  const { business, refresh, user } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  // ---- Change password (email 6-digit code) ----
+  const [pwEmail, setPwEmail] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [pwBusy, setPwBusy] = useState(false);
+
+  useEffect(() => { if (user?.email) setPwEmail(user.email); }, [user]);
+
+  const sendCode = async () => {
+    if (!pwEmail) return toast.error('Enter your account email');
+    setPwBusy(true);
+    try {
+      await api.post('/auth/password/request-code', { email: pwEmail });
+      toast.success('Verification code sent to your email');
+      setCodeSent(true);
+    } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
+    setPwBusy(false);
+  };
+
+  const changePw = async () => {
+    if (code.length !== 6) return toast.error('Enter the 6-digit code');
+    if (newPw.length < 6) return toast.error('Password must be at least 6 characters');
+    if (newPw !== confirmPw) return toast.error('Passwords do not match');
+    setPwBusy(true);
+    try {
+      await api.post('/auth/password/change', { code, newPassword: newPw });
+      toast.success('Password changed successfully');
+      setCodeSent(false); setCode(''); setNewPw(''); setConfirmPw('');
+    } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
+    setPwBusy(false);
+  };
 
   useEffect(() => {
     if (business) {
@@ -119,6 +153,35 @@ export default function Settings() {
       </div>
 
       <button className="btn-primary" disabled={saving} onClick={save}><Save size={18} /> {saving ? 'Saving...' : 'Save Changes'}</button>
+
+      <div className="card p-5 space-y-4">
+        <h3 className="font-semibold flex items-center gap-2"><KeyRound size={16} /> Change Password</h3>
+        <p className="text-xs text-slate-400">We'll email a 6-digit code to your account email to confirm it's you, then you can set a new password.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="sm:col-span-2 flex gap-2 items-end">
+            <div className="flex-1">
+              <label className="label">Account Email</label>
+              <input className="input" type="email" value={pwEmail} onChange={(e) => setPwEmail(e.target.value)} placeholder="you@example.com" />
+            </div>
+            <button className="btn-ghost whitespace-nowrap" disabled={pwBusy} onClick={sendCode}>{codeSent ? 'Resend Code' : 'Send Code'}</button>
+          </div>
+
+          {codeSent && (
+            <>
+              <div className="sm:col-span-2">
+                <label className="label">Verification Code</label>
+                <input className="input tracking-[0.4em] font-semibold" inputMode="numeric" maxLength={6}
+                  value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} placeholder="6-digit code" />
+              </div>
+              <div><label className="label">New Password</label><input className="input" type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} /></div>
+              <div><label className="label">Confirm Password</label><input className="input" type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} /></div>
+              <div className="sm:col-span-2">
+                <button className="btn-primary" disabled={pwBusy} onClick={changePw}><KeyRound size={16} /> {pwBusy ? 'Saving…' : 'Change Password'}</button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

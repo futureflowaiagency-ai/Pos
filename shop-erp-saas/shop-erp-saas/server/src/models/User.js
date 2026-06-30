@@ -14,6 +14,9 @@ const userSchema = new mongoose.Schema(
     preferences: {
       theme: { type: String, enum: ['light', 'dark'], default: 'light' },
     },
+    // 6-digit password-change verification (stored hashed) + expiry
+    resetCode: { type: String, select: false },
+    resetCodeExpires: { type: Date, select: false },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }
