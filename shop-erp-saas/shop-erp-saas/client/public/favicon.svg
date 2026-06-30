@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#4338ca"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="15" fill="url(#bg)"/>
+  <!-- bag handle -->
+  <path d="M24 27 v-4 a8 8 0 0 1 16 0 v4" fill="none" stroke="#ffffff" stroke-width="3.4" stroke-linecap="round"/>
+  <!-- bag body -->
+  <path d="M17 26 h30 a2 2 0 0 1 2 2.2 l-2.1 18.4 a5 5 0 0 1 -5 4.4 H22.1 a5 5 0 0 1 -5 -4.4 L15 28.2 a2 2 0 0 1 2 -2.2 z" fill="#ffffff"/>
+  <!-- accent dots -->
+  <circle cx="26" cy="35" r="2.1" fill="#4f46e5"/>
+  <circle cx="38" cy="35" r="2.1" fill="#4f46e5"/>
+</svg>
