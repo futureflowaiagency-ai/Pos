@@ -26,6 +26,7 @@ export const getInstallment = asyncHandler(async (req, res) => {
 // body: { customer, productName, totalAmount, downPayment, months, firstDueDate }
 export const createInstallment = asyncHandler(async (req, res) => {
   const { customer = null, productName = '', totalAmount, downPayment = 0, months, firstDueDate, sale = null } = req.body;
+  if (!customer) throw new ApiError(400, 'Customer is required');
   const total = Number(totalAmount || 0);
   const down = Number(downPayment || 0);
   const n = Number(months || 0);

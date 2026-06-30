@@ -25,6 +25,7 @@ export default function Installments() {
   useEffect(() => { load(); api.get('/customers').then(({ data }) => setCustomers(data.data.customers)); }, []);
 
   const create = async () => {
+    if (!form.customer) return toast.error('Please select a customer');
     if (Number(form.totalAmount) <= 0) return toast.error('Enter a valid total amount');
     if (Number(form.months) < 1) return toast.error('Months must be at least 1');
     setSaving(true);
@@ -68,7 +69,7 @@ export default function Installments() {
 
       <DataTable
         columns={[
-          { key: 'customerName', label: 'Customer', render: (r) => r.customerName || 'Walk-in' },
+          { key: 'customerName', label: 'Customer', render: (r) => r.customerName || '—' },
           { key: 'productName', label: 'Item', render: (r) => r.productName || '—' },
           { key: 'totalAmount', label: 'Total', className: 'text-right', render: (r) => taka(r.totalAmount) },
           { key: 'downPayment', label: 'Down', className: 'text-right', render: (r) => taka(r.downPayment) },
@@ -97,8 +98,8 @@ export default function Installments() {
           <div className="col-span-2">
             <label className="label">Customer</label>
             <select className="input" value={form.customer} onChange={set('customer')}>
-              <option value="">Walk-in</option>
-              {customers.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
+              <option value="">Select customer</option>
+              {customers.map((c) => <option key={c._id} value={c._id}>{c.name}{c.phone ? ` — ${c.phone}` : ''}</option>)}
             </select>
           </div>
           <div className="col-span-2"><label className="label">Item / Description</label><input className="input" value={form.productName} onChange={set('productName')} placeholder="e.g. iPhone 15 Pro 128GB" /></div>
@@ -114,7 +115,7 @@ export default function Installments() {
 
       {/* Detail / schedule */}
       {detail && (
-        <Modal open onClose={() => setDetail(null)} title={`EMI — ${detail.customerName || 'Walk-in'}`} size="lg" footer={<button className="btn-ghost" onClick={() => setDetail(null)}>Close</button>}>
+        <Modal open onClose={() => setDetail(null)} title={`EMI — ${detail.customerName || '—'}`} size="lg" footer={<button className="btn-ghost" onClick={() => setDetail(null)}>Close</button>}>
           <div className="grid grid-cols-4 gap-3 mb-3 text-center text-sm">
             <div className="card p-2"><p className="text-xs text-slate-400">Total</p><p className="font-bold">{taka(detail.totalAmount)}</p></div>
             <div className="card p-2"><p className="text-xs text-slate-400">Down</p><p className="font-bold">{taka(detail.downPayment)}</p></div>

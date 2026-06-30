@@ -178,6 +178,7 @@ const bn = {
   // ---- EMI / installments ----
   'Down Payment': 'ডাউন পেমেন্ট', 'Number of Months': 'মাসের সংখ্যা',
   'First Due Date': 'প্রথম বাকির তারিখ', 'Due added': 'বাকি যোগ হয়েছে', 'Paid now': 'এখন পরিশোধিত',
+  'Select customer': 'গ্রাহক নির্বাচন করুন', 'Please select a customer': 'একজন গ্রাহক নির্বাচন করুন',
 
   // ---- Services ----
   'Device Model': 'ডিভাইস মডেল', 'Problem / Fault': 'সমস্যা / ত্রুটি', 'Parts Cost': 'পার্টস খরচ',
