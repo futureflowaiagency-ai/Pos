@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Megaphone, Plus, Send, Trash2, Save, Sparkles, KeyRound, MessageSquare, Mail } from 'lucide-react';
+import { Megaphone, Plus, Send, Trash2, Save, Sparkles, MessageSquare, Mail } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios.js';
 import DataTable from '../components/ui/DataTable.jsx';
@@ -283,21 +283,10 @@ function Settings() {
         </div>
       </div>
 
-      {/* AI */}
-      <div className="card p-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold flex items-center gap-2"><KeyRound size={16} /> AI Assistant</h3>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={s.ai.enabled} onChange={(e) => setAi('enabled', e.target.checked)} /> Enabled</label>
-        </div>
-        <p className="text-xs text-slate-400">AI already works for free — you can leave this blank. Only fill it in if you want to use your own paid OpenAI / Claude key.</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div><label className="label">Provider</label>
-            <select className="input" value={s.ai.provider} onChange={(e) => setAi('provider', e.target.value)}>
-              <option value="anthropic">Anthropic (Claude)</option><option value="openai">OpenAI</option>
-            </select></div>
-          <div><label className="label">Model</label><input className="input" value={s.ai.model} onChange={(e) => setAi('model', e.target.value)} placeholder={s.ai.provider === 'openai' ? 'gpt-4o-mini' : 'claude-opus-4-8'} /></div>
-          <div className="sm:col-span-2"><label className="label">API Key</label><input className="input" type="password" placeholder={secretPh(s.ai.apiKeySet)} value={secrets.aiApiKey} onChange={(e) => setSecrets({ ...secrets, aiApiKey: e.target.value })} /></div>
-        </div>
+      {/* AI runs on free central keys now — no per-shop key UI needed. */}
+      <div className="card p-4 flex items-center gap-3">
+        <Sparkles size={18} className="text-brand-600 shrink-0" />
+        <p className="text-sm text-slate-500">AI Assistant is built-in and free — no setup needed. Use it from the Dashboard summary or the “AI draft” button when creating a campaign.</p>
       </div>
 
       <button className="btn-primary" disabled={saving} onClick={save}><Save size={18} /> {saving ? 'Saving…' : 'Save Settings'}</button>

@@ -91,18 +91,18 @@ const callers = { anthropic: genAnthropic, openai: genOpenAI, groq: genGroq, gem
 // True if the platform has at least one central free key configured.
 export const hasCentralAI = () => !!(process.env.GEMINI_API_KEY || process.env.GROQ_API_KEY);
 
-// Ordered list of providers to attempt: shop's own key first (if any), then
-// the platform's free central keys (Gemini → Groq).
+// Ordered list of providers to attempt: the platform's free central keys
+// first (Gemini → Groq), then a shop's own key as a last resort if it set one.
 const buildChain = (ai) => {
   const chain = [];
-  if (ai?.apiKey && ai?.provider && callers[ai.provider]) {
-    chain.push({ provider: ai.provider, apiKey: ai.apiKey, model: ai.model });
-  }
   if (process.env.GEMINI_API_KEY) {
     chain.push({ provider: 'gemini', apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-2.0-flash' });
   }
   if (process.env.GROQ_API_KEY) {
     chain.push({ provider: 'groq', apiKey: process.env.GROQ_API_KEY, model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile' });
+  }
+  if (ai?.apiKey && ai?.provider && callers[ai.provider]) {
+    chain.push({ provider: ai.provider, apiKey: ai.apiKey, model: ai.model });
   }
   return chain;
 };
