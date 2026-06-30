@@ -8,41 +8,26 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useTheme } from '../context/ThemeContext.jsx';
 
 export default function Settings() {
-  const { business, refresh, user } = useAuth();
+  const { business, refresh } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  // ---- Change password (email 6-digit code) ----
-  const [pwEmail, setPwEmail] = useState('');
-  const [codeSent, setCodeSent] = useState(false);
-  const [code, setCode] = useState('');
+  // ---- Change password (current password + new password) ----
+  const [currentPw, setCurrentPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
   const [pwBusy, setPwBusy] = useState(false);
 
-  useEffect(() => { if (user?.email) setPwEmail(user.email); }, [user]);
-
-  const sendCode = async () => {
-    if (!pwEmail) return toast.error('Enter your account email');
-    setPwBusy(true);
-    try {
-      await api.post('/auth/password/request-code', { email: pwEmail });
-      toast.success('Verification code sent to your email');
-      setCodeSent(true);
-    } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
-    setPwBusy(false);
-  };
-
   const changePw = async () => {
-    if (code.length !== 6) return toast.error('Enter the 6-digit code');
+    if (!currentPw) return toast.error('Enter your current password');
     if (newPw.length < 6) return toast.error('Password must be at least 6 characters');
     if (newPw !== confirmPw) return toast.error('Passwords do not match');
     setPwBusy(true);
     try {
-      await api.post('/auth/password/change', { code, newPassword: newPw });
+      await api.post('/auth/password/change', { currentPassword: currentPw, newPassword: newPw });
       toast.success('Password changed successfully');
-      setCodeSent(false); setCode(''); setNewPw(''); setConfirmPw('');
+      setCurrentPw(''); setNewPw(''); setConfirmPw('');
     } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
     setPwBusy(false);
   };
@@ -150,30 +135,14 @@ export default function Settings() {
 
       <div className="card p-5 space-y-4">
         <h3 className="font-semibold flex items-center gap-2"><KeyRound size={16} /> Change Password</h3>
-        <p className="text-xs text-slate-400">We'll email a 6-digit code to your account email to confirm it's you, then you can set a new password.</p>
+        <p className="text-xs text-slate-400">Enter your current password, then choose a new one.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="sm:col-span-2 flex gap-2 items-end">
-            <div className="flex-1">
-              <label className="label">Account Email</label>
-              <input className="input" type="email" value={pwEmail} onChange={(e) => setPwEmail(e.target.value)} placeholder="you@example.com" />
-            </div>
-            <button className="btn-ghost whitespace-nowrap" disabled={pwBusy} onClick={sendCode}>{codeSent ? 'Resend Code' : 'Send Code'}</button>
+          <div className="sm:col-span-2"><label className="label">Current Password</label><input className="input" type="password" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} /></div>
+          <div><label className="label">New Password</label><input className="input" type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} /></div>
+          <div><label className="label">Confirm Password</label><input className="input" type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} /></div>
+          <div className="sm:col-span-2">
+            <button className="btn-primary" disabled={pwBusy} onClick={changePw}><KeyRound size={16} /> {pwBusy ? 'Saving…' : 'Change Password'}</button>
           </div>
-
-          {codeSent && (
-            <>
-              <div className="sm:col-span-2">
-                <label className="label">Verification Code</label>
-                <input className="input tracking-[0.4em] font-semibold" inputMode="numeric" maxLength={6}
-                  value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} placeholder="6-digit code" />
-              </div>
-              <div><label className="label">New Password</label><input className="input" type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} /></div>
-              <div><label className="label">Confirm Password</label><input className="input" type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} /></div>
-              <div className="sm:col-span-2">
-                <button className="btn-primary" disabled={pwBusy} onClick={changePw}><KeyRound size={16} /> {pwBusy ? 'Saving…' : 'Change Password'}</button>
-              </div>
-            </>
-          )}
         </div>
       </div>
     </div>

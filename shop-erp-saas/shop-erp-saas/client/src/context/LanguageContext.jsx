@@ -197,6 +197,9 @@ const bn = {
 
   // ---- Change password ----
   'Change Password': 'পাসওয়ার্ড পরিবর্তন', 'Account Email': 'অ্যাকাউন্ট ইমেইল',
+  'Current Password': 'বর্তমান পাসওয়ার্ড', 'Enter your current password': 'আপনার বর্তমান পাসওয়ার্ড দিন',
+  'Current password is incorrect': 'বর্তমান পাসওয়ার্ড ভুল',
+  'Enter your current password, then choose a new one.': 'আপনার বর্তমান পাসওয়ার্ড দিন, তারপর নতুন একটি দিন।',
   'Send Code': 'কোড পাঠান', 'Resend Code': 'আবার কোড পাঠান', 'Verification Code': 'যাচাই কোড',
   'New Password': 'নতুন পাসওয়ার্ড', 'Confirm Password': 'পাসওয়ার্ড নিশ্চিত করুন',
   '6-digit code': '৬-অঙ্কের কোড',
