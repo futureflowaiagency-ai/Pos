@@ -9,9 +9,11 @@ import Spinner from '../components/ui/Spinner.jsx';
 import PrintWrapper from '../components/print/PrintWrapper.jsx';
 import { taka, fmtDate } from '../utils/format.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useLang } from '../context/LanguageContext.jsx';
 
 export default function Finance() {
   const { business } = useAuth();
+  const { t } = useLang();
   const [summary, setSummary] = useState(null);
   const [expenses, setExpenses] = useState([]);
   const [report, setReport] = useState([]);
@@ -35,7 +37,7 @@ export default function Finance() {
   const save = async () => {
     try {
       await api.post('/expenses', { ...form, amount: +form.amount });
-      toast.success('Expense added');
+      toast.success(t('Expense added'));
       setModal(false);
       setForm({ title: '', category: 'General', amount: 0, note: '' });
       load();
