@@ -4,23 +4,31 @@ import { ok, created } from '../utils/apiResponse.js';
 import { tenantFilter } from '../middleware/tenant.js';
 import { logActivity } from '../middleware/activityLogger.js';
 import Payment from '../models/Payment.js';
-import Subscription, { PLANS } from '../models/Subscription.js';
+import Subscription, { PLANS, resolvePlans } from '../models/Subscription.js';
 import Business from '../models/Business.js';
 
-// @route GET /api/payments/plans
-export const getPlans = asyncHandler(async (req, res) => ok(res, { plans: PLANS }));
+// @route GET /api/payments/plans  (plans the current shop should see — custom or default)
+export const getPlans = asyncHandler(async (req, res) => {
+  const business = req.businessId ? await Business.findById(req.businessId) : null;
+  ok(res, { plans: resolvePlans(business) });
+});
 
 // @route POST /api/payments  (owner submits TRX id)
 export const submitPayment = asyncHandler(async (req, res) => {
   const { plan, method, senderNumber, trxId } = req.body;
-  if (!PLANS[plan]) throw new ApiError(400, 'Invalid plan');
   if (!trxId) throw new ApiError(400, 'Transaction ID required');
+
+  const business = await Business.findById(req.businessId);
+  const plans = resolvePlans(business);
+  const selected = plans[plan];
+  if (!selected) throw new ApiError(400, 'Invalid plan');
 
   const payment = await Payment.create({
     business: req.businessId,
     submittedBy: req.user._id,
     plan,
-    amount: PLANS[plan].price,
+    amount: selected.price,
+    days: selected.days,
     method,
     senderNumber,
     trxId,

@@ -6,7 +6,8 @@ import Spinner from '../components/ui/Spinner.jsx';
 import DataTable from '../components/ui/DataTable.jsx';
 import { taka, fmtDate, fmtDateTime } from '../utils/format.js';
 
-const PLAN_LABELS = { monthly: 'Monthly', half_yearly: 'Half-Yearly', yearly: 'Yearly' };
+const PLAN_LABELS = { monthly: 'Monthly', half_yearly: 'Half-Yearly', yearly: 'Yearly', custom: 'Custom' };
+const planLabel = (p) => PLAN_LABELS[p] || p;
 
 export default function Subscription() {
   const [plans, setPlans] = useState({});
@@ -22,7 +23,10 @@ export default function Subscription() {
       api.get('/payments/subscription'),
       api.get('/payments/mine'),
     ]);
-    setPlans(p.data.data.plans);
+    const loadedPlans = p.data.data.plans;
+    setPlans(loadedPlans);
+    // make sure a valid plan is selected (default tiers use 'monthly', custom uses 'custom')
+    setForm((f) => (loadedPlans[f.plan] ? f : { ...f, plan: Object.keys(loadedPlans)[0] || 'monthly' }));
     setSub(s.data.data);
     setPayments(m.data.data.payments);
     setLoading(false);
@@ -61,7 +65,7 @@ export default function Subscription() {
         {sub.subscription && (
           <div>
             <p className="text-sm text-slate-500">Active Plan</p>
-            <p className="font-semibold">{PLAN_LABELS[sub.subscription.plan]}</p>
+            <p className="font-semibold">{planLabel(sub.subscription.plan)}</p>
           </div>
         )}
       </div>
@@ -92,7 +96,7 @@ export default function Subscription() {
           </div>
           <div><label className="label">Sender Number</label><input className="input" value={form.senderNumber} onChange={(e) => setForm({ ...form, senderNumber: e.target.value })} placeholder="01XXXXXXXXX" /></div>
           <div><label className="label">Transaction ID (TRX)</label><input className="input" value={form.trxId} onChange={(e) => setForm({ ...form, trxId: e.target.value })} placeholder="e.g. 9AB7CD2EF1" /></div>
-          <p className="text-xs text-slate-500">Amount: <b>{taka(plans[form.plan]?.price)}</b> for {PLAN_LABELS[form.plan]} plan</p>
+          <p className="text-xs text-slate-500">Amount: <b>{taka(plans[form.plan]?.price)}</b> for {plans[form.plan]?.label || planLabel(form.plan)} plan</p>
           <button className="btn-primary w-full" disabled={submitting} onClick={submit}>{submitting ? 'Submitting...' : 'Submit Payment'}</button>
         </div>
       </div>
@@ -102,7 +106,7 @@ export default function Subscription() {
         <DataTable
           columns={[
             { key: 'createdAt', label: 'Date', render: (r) => fmtDateTime(r.createdAt) },
-            { key: 'plan', label: 'Plan', render: (r) => PLAN_LABELS[r.plan] },
+            { key: 'plan', label: 'Plan', render: (r) => planLabel(r.plan) },
             { key: 'amount', label: 'Amount', className: 'text-right', render: (r) => taka(r.amount) },
             { key: 'method', label: 'Method', className: 'capitalize' },
             { key: 'trxId', label: 'TRX ID' },

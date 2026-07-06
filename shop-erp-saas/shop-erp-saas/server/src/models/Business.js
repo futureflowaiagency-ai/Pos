@@ -16,6 +16,14 @@ const businessSchema = new mongoose.Schema(
       lowStockThreshold: { type: Number, default: 5 },
       printMode: { type: String, enum: ['a4', 'thermal'], default: 'a4' },
     },
+    // per-shop custom subscription price set by super admin.
+    // when enabled, this single plan replaces the default plans on the subscription page.
+    customPlan: {
+      enabled: { type: Boolean, default: false },
+      label: { type: String, default: 'Custom Plan', trim: true },
+      price: { type: Number, default: 0 },
+      days: { type: Number, default: 30 },
+    },
     // subscription snapshot for quick access checks
     subscriptionStatus: { type: String, enum: ['trial', 'active', 'expired'], default: 'trial' },
     subscriptionExpiry: { type: Date, default: () => Date.now() + 14 * 24 * 60 * 60 * 1000 },

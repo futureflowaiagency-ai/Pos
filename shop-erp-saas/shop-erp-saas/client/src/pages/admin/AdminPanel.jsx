@@ -9,8 +9,10 @@ import Spinner from '../../components/ui/Spinner.jsx';
 import { taka, fmtDate, fmtDateTime } from '../../utils/format.js';
 import { useConfirm } from '../../context/ConfirmContext.jsx';
 
-const PLAN_LABELS = { monthly: 'Monthly', half_yearly: 'Half-Yearly', yearly: 'Yearly' };
+const PLAN_LABELS = { monthly: 'Monthly', half_yearly: 'Half-Yearly', yearly: 'Yearly', custom: 'Custom' };
+const planLabel = (p) => PLAN_LABELS[p] || p;
 const emptyOwner = { name: '', email: '', phone: '', password: '', businessName: '', businessType: 'general' };
+const emptyPlan = { enabled: false, label: 'Custom Plan', price: '', days: 30 };
 
 export default function AdminPanel() {
   const confirm = useConfirm();
@@ -21,6 +23,9 @@ export default function AdminPanel() {
   const [ownerModal, setOwnerModal] = useState(false);
   const [ownerForm, setOwnerForm] = useState(emptyOwner);
   const [saving, setSaving] = useState(false);
+  const [planBiz, setPlanBiz] = useState(null);
+  const [planForm, setPlanForm] = useState(emptyPlan);
+  const [savingPlan, setSavingPlan] = useState(false);
 
   const load = async () => {
     const [o, p, b] = await Promise.all([
@@ -38,7 +43,7 @@ export default function AdminPanel() {
     const ok = await confirm({
       title: action === 'approve' ? 'Approve this payment?' : 'Reject this payment?',
       message: action === 'approve'
-        ? `Approve the ${PLAN_LABELS[r.plan]} payment of ${taka(r.amount)} for ${r.business?.name || 'this business'}? The subscription will be extended.`
+        ? `Approve the ${planLabel(r.plan)} payment of ${taka(r.amount)} for ${r.business?.name || 'this business'}? The subscription will be extended.`
         : `Reject the payment of ${taka(r.amount)} for ${r.business?.name || 'this business'}?`,
       confirmText: action === 'approve' ? 'Approve' : 'Reject',
       tone: action === 'approve' ? 'success' : 'danger',
@@ -80,7 +85,38 @@ export default function AdminPanel() {
     setSaving(false);
   };
 
+  const openPlan = (r) => {
+    const cp = r.customPlan || {};
+    setPlanBiz(r);
+    setPlanForm({
+      enabled: !!cp.enabled,
+      label: cp.label || 'Custom Plan',
+      price: cp.enabled ? cp.price ?? '' : '',
+      days: cp.enabled ? cp.days ?? 30 : 30,
+    });
+  };
+
+  const savePlan = async () => {
+    if (planForm.enabled) {
+      if (planForm.price === '' || Number(planForm.price) < 0) return toast.error('Valid price required');
+      if (!(Number(planForm.days) > 0)) return toast.error('Valid duration (days) required');
+    }
+    setSavingPlan(true);
+    try {
+      await api.patch(`/admin/businesses/${planBiz._id}/plan`, {
+        enabled: planForm.enabled,
+        label: planForm.label,
+        price: Number(planForm.price) || 0,
+        days: Number(planForm.days) || 30,
+      });
+      toast.success('Custom price updated');
+      setPlanBiz(null); load();
+    } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
+    setSavingPlan(false);
+  };
+
   const setO = (k) => (e) => setOwnerForm({ ...ownerForm, [k]: e.target.value });
+  const setP = (k) => (e) => setPlanForm({ ...planForm, [k]: e.target.value });
 
   if (!overview) return <Spinner />;
 
@@ -110,7 +146,7 @@ export default function AdminPanel() {
               { key: 'createdAt', label: 'Date', render: (r) => fmtDateTime(r.createdAt) },
               { key: 'business', label: 'Business', render: (r) => r.business?.name || '—' },
               { key: 'submittedBy', label: 'By', render: (r) => r.submittedBy?.name || '—' },
-              { key: 'plan', label: 'Plan', render: (r) => PLAN_LABELS[r.plan] },
+              { key: 'plan', label: 'Plan', render: (r) => planLabel(r.plan) },
               { key: 'amount', label: 'Amount', className: 'text-right', render: (r) => taka(r.amount) },
               { key: 'method', label: 'Method', className: 'capitalize' },
               { key: 'trxId', label: 'TRX ID' },
@@ -140,8 +176,16 @@ export default function AdminPanel() {
                 <span className={`badge ${r.subscriptionStatus === 'active' ? 'bg-green-100 text-green-700' : r.subscriptionStatus === 'expired' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{r.subscriptionStatus}</span>
               )},
               { key: 'subscriptionExpiry', label: 'Expiry', render: (r) => fmtDate(r.subscriptionExpiry) },
+              { key: 'price', label: 'Price', render: (r) => (
+                r.customPlan?.enabled
+                  ? <span title={`${r.customPlan.label} • ${r.customPlan.days} days`}>{taka(r.customPlan.price)} <span className="text-slate-400">/ {r.customPlan.days}d</span></span>
+                  : <span className="text-slate-400">Default</span>
+              )},
               { key: 'actions', label: '', className: 'text-right', render: (r) => (
-                <button onClick={() => toggleOwner(r)} className="btn-ghost text-xs">{r.owner?.isActive !== false ? 'Deactivate' : 'Activate'}</button>
+                <div className="flex justify-end gap-1">
+                  <button onClick={() => openPlan(r)} className="btn-ghost text-xs">Set Price</button>
+                  <button onClick={() => toggleOwner(r)} className="btn-ghost text-xs">{r.owner?.isActive !== false ? 'Deactivate' : 'Activate'}</button>
+                </div>
               )},
             ]}
             rows={businesses}
@@ -167,6 +211,27 @@ export default function AdminPanel() {
               <option value="mobile">Mobile Shop Management</option>
             </select>
           </div>
+        </div>
+      </Modal>
+
+      {/* Set Custom Price */}
+      <Modal open={!!planBiz} onClose={() => setPlanBiz(null)} title={`Custom Price — ${planBiz?.name || ''}`}
+        footer={<><button className="btn-ghost" onClick={() => setPlanBiz(null)}>Cancel</button><button className="btn-primary" disabled={savingPlan} onClick={savePlan}>{savingPlan ? 'Saving...' : 'Save'}</button></>}>
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={planForm.enabled} onChange={(e) => setPlanForm({ ...planForm, enabled: e.target.checked })} />
+            <span className="text-sm">Enable custom price for this shop</span>
+          </label>
+          {planForm.enabled ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2"><label className="label">Plan Name</label><input className="input" value={planForm.label} onChange={setP('label')} placeholder="e.g. Yearly" /></div>
+              <div><label className="label">Price (৳)</label><input className="input" type="number" min="0" value={planForm.price} onChange={setP('price')} placeholder="e.g. 3000" /></div>
+              <div><label className="label">Duration (days)</label><input className="input" type="number" min="1" value={planForm.days} onChange={setP('days')} placeholder="e.g. 365" /></div>
+              <p className="col-span-2 text-xs text-slate-500">This shop will see only this plan on its Subscription page.</p>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">Custom price off — this shop sees the default plans (৳500 / ৳2,500 / ৳4,500).</p>
+          )}
         </div>
       </Modal>
     </div>

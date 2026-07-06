@@ -41,7 +41,9 @@ export const reviewPayment = asyncHandler(async (req, res) => {
 
   if (action === 'approve') {
     payment.status = 'approved';
-    const days = PLANS[payment.plan].days;
+    // prefer the duration snapshot taken at submit time; fall back to default tiers for old records
+    const days = payment.days || PLANS[payment.plan]?.days;
+    if (!days) throw new ApiError(400, 'Payment has no valid duration');
     const business = await Business.findById(payment.business);
     // extend from current expiry if still active, else from now
     const base = business.subscriptionExpiry && business.subscriptionExpiry > new Date()
@@ -79,6 +81,30 @@ export const listBusinesses = asyncHandler(async (req, res) => {
 export const createOwner = asyncHandler(async (req, res) => {
   const { user, business } = await createOwnerWithBusiness(req.body);
   ok(res, { owner: publicUser(user), business }, 'Owner account created');
+});
+
+// @route PATCH /api/admin/businesses/:id/plan  (set/clear a shop's custom subscription price)
+export const setBusinessPlan = asyncHandler(async (req, res) => {
+  const business = await Business.findById(req.params.id);
+  if (!business) throw new ApiError(404, 'Business not found');
+
+  const { enabled, label, price, days } = req.body;
+  if (enabled) {
+    const p = Number(price);
+    const d = Number(days);
+    if (!(p >= 0)) throw new ApiError(400, 'Valid price required');
+    if (!(d > 0)) throw new ApiError(400, 'Valid duration (days) required');
+    business.customPlan = {
+      enabled: true,
+      label: (label || 'Custom Plan').trim(),
+      price: p,
+      days: d,
+    };
+  } else {
+    business.customPlan = { enabled: false, label: 'Custom Plan', price: 0, days: 30 };
+  }
+  await business.save();
+  ok(res, { business }, 'Custom plan updated');
 });
 
 // @route PATCH /api/admin/businesses/:id/toggle  (enable/disable owner)
