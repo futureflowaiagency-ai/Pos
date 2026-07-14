@@ -9,7 +9,9 @@ import { taka } from '../../utils/format.js';
 // the sheet falls back to `quantity` copies of the shared product barcode.
 export default function BarcodeLabelSheet({ product, quantity = 20, columns = 3, business, codes }) {
   if (!product) return null;
-  const list = (codes && codes.length)
+  // codes provided (even if empty) → print exactly those; a provided-but-empty
+  // list prints nothing. codes omitted entirely → product barcode × quantity.
+  const list = codes !== undefined
     ? codes.slice(0, 200)
     : Array.from({ length: Math.max(1, Math.min(200, Number(quantity) || 1)) }, () => product.barcode);
   const price = product.discountPercent > 0

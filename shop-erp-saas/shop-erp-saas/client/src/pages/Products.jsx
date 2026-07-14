@@ -255,7 +255,7 @@ export default function Products() {
       </Modal>
 
       {unitsFor && <UnitsModal product={unitsFor} onClose={() => setUnitsFor(null)} onChanged={load} />}
-      {labelFor && <LabelPrintModal product={labelFor} business={business} onClose={() => setLabelFor(null)} />}
+      {labelFor && <LabelPrintModal product={labelFor} business={business} onClose={() => setLabelFor(null)} onChanged={load} />}
     </div>
   );
 }

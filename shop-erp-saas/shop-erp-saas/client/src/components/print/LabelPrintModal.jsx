@@ -1,26 +1,31 @@
 import { useEffect, useState } from 'react';
-import { Printer, X } from 'lucide-react';
+import { Printer, X, Plus } from 'lucide-react';
+import toast from 'react-hot-toast';
 import api from '../../api/axios.js';
 import BarcodeLabelSheet from './BarcodeLabelSheet.jsx';
 
 // Barcode label printing dialog. For IMEI/serial-tracked products it prints one
 // UNIQUE label per in-stock device (barcode = that device's IMEI/serial), so no
-// two labels share a number. For plain products it prints `quantity` copies of
+// two labels share a number — and you can generate unique serials right here for
+// items that have no real IMEI. For plain products it prints `quantity` copies of
 // the shared product barcode. Controls are `no-print`; only the `.print-area`
 // sheet reaches the printer.
-export default function LabelPrintModal({ product, business, onClose }) {
+export default function LabelPrintModal({ product, business, onClose, onChanged }) {
   const isSerial = !!product?.trackSerial;
   const [quantity, setQuantity] = useState(20);
   const [columns, setColumns] = useState(3);
   const [mode, setMode] = useState(isSerial ? 'unit' : 'product'); // 'unit' | 'product'
   const [units, setUnits] = useState([]);
+  const [genCount, setGenCount] = useState(10);
+  const [genBusy, setGenBusy] = useState(false);
 
-  useEffect(() => {
+  const loadUnits = () => {
     if (!isSerial || !product?._id) return;
     api.get('/units', { params: { product: product._id, status: 'in_stock' } })
       .then(({ data }) => setUnits(data.data.units))
       .catch(() => setUnits([]));
-  }, [product?._id, isSerial]);
+  };
+  useEffect(() => { loadUnits(); }, [product?._id, isSerial]);
 
   if (!product) return null;
 
@@ -29,7 +34,22 @@ export default function LabelPrintModal({ product, business, onClose }) {
   const codes = mode === 'unit'
     ? unitCodes
     : Array.from({ length: quantity }, () => product.barcode);
-  const nothingToPrint = mode === 'unit' && unitCodes.length === 0;
+  const nothingToPrint = codes.length === 0;
+
+  // create N unique auto-serials as in-stock units, then show their unique labels
+  const generate = async () => {
+    const n = Math.max(1, Math.min(200, Number(genCount) || 1));
+    const base = Date.now();
+    const list = Array.from({ length: n }, (_, i) => ({ serial: `${base}${String(i).padStart(3, '0')}` }));
+    setGenBusy(true);
+    try {
+      await api.post('/units', { product: product._id, units: list });
+      loadUnits();
+      onChanged?.();
+      toast.success(`${n} unique serial(s) added — ready to print`);
+    } catch (e) { toast.error(e.response?.data?.message || 'Failed to generate serials'); }
+    setGenBusy(false);
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 overflow-auto">
@@ -42,6 +62,7 @@ export default function LabelPrintModal({ product, business, onClose }) {
               <button onClick={onClose} className="btn-ghost"><X size={18} /> Close</button>
             </div>
           </div>
+
           <div className="card p-3 flex flex-wrap items-end gap-3">
             {isSerial && (
               <div>
@@ -83,9 +104,22 @@ export default function LabelPrintModal({ product, business, onClose }) {
               : <p className="text-xs text-white/70">Barcode: <span className="font-mono">{product.barcode || '—'}</span></p>}
           </div>
 
-          {nothingToPrint && (
+          {/* In "per device" mode, generate unique serials for items without a real IMEI */}
+          {mode === 'unit' && (
+            <div className="card p-3 mt-2 flex flex-wrap items-end gap-3">
+              <div>
+                <label className="label">No IMEI? Generate unique serials</label>
+                <input type="number" min="1" max="200" className="input !w-28" value={genCount}
+                  onChange={(e) => setGenCount(e.target.value)} />
+              </div>
+              <button className="btn-primary" disabled={genBusy} onClick={generate}><Plus size={16} /> Generate &amp; Add</button>
+              <p className="text-xs text-white/70">Creates unique auto-serials as stock, so each item gets its own scannable barcode.</p>
+            </div>
+          )}
+
+          {nothingToPrint && mode === 'unit' && (
             <p className="text-amber-300 text-sm mt-2">
-              No in-stock devices for this product. Add IMEIs/serials first (or use “Generate serials” in the IMEI manager), or switch to “Product barcode”.
+              No in-stock devices yet. Scan/add IMEIs, or use “Generate &amp; Add” above to create unique serials, then print.
             </p>
           )}
         </div>
