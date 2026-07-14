@@ -25,10 +25,13 @@ const lineKey = (i) => (i.unitId ? `u:${i.unitId}` : `p:${i._id}`);
 export default function POS() {
   const { business } = useAuth();
   const isMobile = business?.type === 'mobile';
+  // Unique per-unit codes (IMEI/serial) work for Mobile + General shops; Pharmacy
+  // has no barcode/unit-tracking system.
+  const supportsUnits = business?.type !== 'pharmacy';
   const heldKey = `pos_holds_${business?._id || business?.id || 'default'}`;
 
   const [products, setProducts] = useState([]);
-  const [unitResults, setUnitResults] = useState([]); // IMEI/serial matches (mobile)
+  const [unitResults, setUnitResults] = useState([]); // unique-unit code matches
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState([]);
   // customer (walk-in removed — phone + name are required, matched to a record)
@@ -58,8 +61,8 @@ export default function POS() {
   const load = async () => {
     const { data } = await api.get('/products', { params: { search } });
     setProducts(data.data.products);
-    // For mobile shops, also match in-stock devices by IMEI / serial.
-    if (isMobile && search.trim()) {
+    // For Mobile + General shops, also match in-stock units by their unique code.
+    if (supportsUnits && search.trim()) {
       try {
         const u = await api.get('/units', { params: { status: 'in_stock', search: search.trim() } });
         setUnitResults(u.data.data.units);
@@ -100,7 +103,7 @@ export default function POS() {
 
   // ---------- cart ops ----------
   const addToCart = (p) => {
-    if (p.trackSerial) { toast.error('Scan the IMEI / serial to add this device'); return; }
+    if (p.trackSerial) { toast.error(isMobile ? 'Scan the IMEI / serial to add this device' : 'Scan the unit code to add this item'); return; }
     setCart((c) => {
       const ex = c.find((i) => !i.unitId && i._id === p._id);
       if (ex) {
@@ -140,7 +143,7 @@ export default function POS() {
     try {
       const { data } = await api.get(`/products/barcode/${encodeURIComponent(term)}`);
       const p = data.data.product;
-      if (p.trackSerial) { toast.error('This product is IMEI-tracked — scan the device IMEI/serial'); setImei(''); return; }
+      if (p.trackSerial) { toast.error(isMobile ? 'This product is IMEI-tracked — scan the device IMEI/serial' : 'This product is unit-tracked — scan its unique code'); setImei(''); return; }
       if (p.stock < 1) { toast.error('Out of stock'); return; }
       addToCart(p);
       setImei('');
@@ -266,18 +269,18 @@ export default function POS() {
 
         <div className="relative">
           <Search size={18} className="absolute left-3 top-2.5 text-slate-400" />
-          <input className="input pl-10" placeholder={isMobile ? 'Search products or IMEI / serial...' : 'Search products to add...'} value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input className="input pl-10" placeholder={supportsUnits ? 'Search products or unit code...' : 'Search products to add...'} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
 
-        {isMobile && unitResults.length > 0 && (
+        {supportsUnits && unitResults.length > 0 && (
           <div className="space-y-2">
-            <p className="text-xs font-semibold text-slate-400">Matching devices (IMEI / serial)</p>
+            <p className="text-xs font-semibold text-slate-400">Matching units (unique code)</p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               {unitResults.map((u) => (
                 <button key={u._id} onClick={() => pushUnit(u)} className="card p-3 text-left hover:ring-2 hover:ring-brand-500 transition">
-                  <p className="font-medium text-sm truncate">{u.product?.name || 'Device'}</p>
+                  <p className="font-medium text-sm truncate">{u.product?.name || 'Item'}</p>
                   <p className="text-brand-600 font-bold">{taka(unitPrice({ sellingPrice: u.product?.sellingPrice || 0, discountPercent: u.product?.discountPercent || 0 }))}</p>
-                  <p className="text-xs text-brand-500 truncate">IMEI: {u.imei1 || u.serial}</p>
+                  <p className="text-xs text-brand-500 truncate">Code: {u.imei1 || u.serial}</p>
                 </button>
               ))}
             </div>
@@ -297,7 +300,7 @@ export default function POS() {
               ) : (
                 <p className="text-brand-600 font-bold">{taka(p.sellingPrice)}</p>
               )}
-              <p className="text-xs text-slate-400">Stock: {p.stock}{p.trackSerial ? ' (scan IMEI)' : ''}</p>
+              <p className="text-xs text-slate-400">Stock: {p.stock}{p.trackSerial ? (isMobile ? ' (scan IMEI)' : ' (scan code)') : ''}</p>
             </button>
           ))}
         </div>

@@ -10,7 +10,7 @@ import BarcodeLabelSheet from './BarcodeLabelSheet.jsx';
 // items that have no real IMEI. For plain products it prints `quantity` copies of
 // the shared product barcode. Controls are `no-print`; only the `.print-area`
 // sheet reaches the printer.
-export default function LabelPrintModal({ product, business, onClose, onChanged }) {
+export default function LabelPrintModal({ product, business, isMobile, onClose, onChanged }) {
   const isSerial = !!product?.trackSerial;
   const [quantity, setQuantity] = useState(20);
   const [columns, setColumns] = useState(3);
@@ -70,7 +70,7 @@ export default function LabelPrintModal({ product, business, onClose, onChanged 
               <div>
                 <label className="label">Label Content</label>
                 <select className="input !w-56" value={mode} onChange={(e) => setMode(e.target.value)}>
-                  <option value="unit">Per device — unique IMEI/Serial</option>
+                  <option value="unit">{isMobile ? 'Per device — unique IMEI/Serial' : 'Per unit — unique code'}</option>
                   <option value="product">Product barcode (same on all)</option>
                 </select>
               </div>
@@ -102,26 +102,26 @@ export default function LabelPrintModal({ product, business, onClose, onChanged 
             </div>
 
             {mode === 'unit'
-              ? <p className="text-xs text-white/70">{unitCodes.length} in-stock device(s) — one unique label each.</p>
+              ? <p className="text-xs text-white/70">{unitCodes.length} in-stock {isMobile ? 'device(s)' : 'unit(s)'} — one unique label each.</p>
               : <p className="text-xs text-white/70">Barcode: <span className="font-mono">{product.barcode || '—'}</span></p>}
           </div>
 
-          {/* In "per device" mode, generate unique serials for items without a real IMEI */}
+          {/* In "per unit" mode, generate unique codes for items without a real IMEI */}
           {mode === 'unit' && (
             <div className="card p-3 mt-2 flex flex-wrap items-end gap-3">
               <div>
-                <label className="label">No IMEI? Generate unique serials</label>
+                <label className="label">{isMobile ? 'No IMEI? Generate unique serials' : 'Generate unique codes'}</label>
                 <input type="number" min="1" max="200" className="input !w-28" value={genCount}
                   onChange={(e) => setGenCount(e.target.value)} />
               </div>
               <button className="btn-primary" disabled={genBusy} onClick={generate}><Plus size={16} /> Generate &amp; Add</button>
-              <p className="text-xs text-white/70">Creates unique auto-serials as stock, so each item gets its own scannable barcode.</p>
+              <p className="text-xs text-white/70">Creates unique auto-numbers as stock, so each unit gets its own scannable barcode.</p>
             </div>
           )}
 
           {nothingToPrint && mode === 'unit' && (
             <p className="text-amber-300 text-sm mt-2">
-              No in-stock devices yet. Scan/add IMEIs, or use “Generate &amp; Add” above to create unique serials, then print.
+              No in-stock {isMobile ? 'devices' : 'units'} yet. {isMobile ? 'Scan/add IMEIs' : 'Add unit codes'}, or use “Generate &amp; Add” above to create unique codes, then print.
             </p>
           )}
         </div>

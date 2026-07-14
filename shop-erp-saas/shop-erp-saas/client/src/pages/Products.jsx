@@ -24,6 +24,10 @@ export default function Products() {
   const confirm = useConfirm();
   const { business } = useAuth();
   const isMobile = business?.type === 'mobile';
+  const isPharmacy = business?.type === 'pharmacy';
+  // Barcode / per-unit tracking is available to Mobile + General shops; Pharmacy
+  // has no barcode system at all (per client request).
+  const serialEnabled = !isPharmacy;
   const [products, setProducts] = useState([]);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(false);
@@ -49,7 +53,7 @@ export default function Products() {
       const { data } = await api.get(`/products/barcode/${encodeURIComponent(code)}`);
       const p = data.data.product;
       setScanCode('');
-      if (p.trackSerial) { setUnitsFor(p); toast.success(`${p.name} — add a new IMEI/serial`); }
+      if (p.trackSerial) { setUnitsFor(p); toast.success(`${p.name} — add a new ${isMobile ? 'IMEI/serial' : 'unit code'}`); }
       else { openEdit(p); toast.success(`${p.name} found`); }
     } catch (e) {
       if (e.response?.status === 404) {
@@ -145,9 +149,9 @@ export default function Products() {
     )},
     { key: 'actions', label: '', className: 'text-right', render: (r) => (
       <div className="flex justify-end gap-2">
-        <button onClick={() => setLabelFor(r)} className="btn-ghost p-1.5" title="Print barcode label"><Tag size={15} /></button>
-        {isMobile && r.trackSerial && (
-          <button onClick={() => setUnitsFor(r)} className="btn-ghost p-1.5" title="Manage IMEIs"><Barcode size={15} /></button>
+        {serialEnabled && <button onClick={() => setLabelFor(r)} className="btn-ghost p-1.5" title="Print barcode label"><Tag size={15} /></button>}
+        {serialEnabled && r.trackSerial && (
+          <button onClick={() => setUnitsFor(r)} className="btn-ghost p-1.5" title={isMobile ? 'Manage IMEIs' : 'Manage unit codes'}><Barcode size={15} /></button>
         )}
         <button onClick={() => openEdit(r)} className="btn-ghost p-1.5"><Pencil size={15} /></button>
         <button onClick={() => del(r)} className="btn-ghost p-1.5 text-red-500"><Trash2 size={15} /></button>
@@ -165,34 +169,38 @@ export default function Products() {
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1 max-w-sm">
           <Search size={18} className="absolute left-3 top-2.5 text-slate-400" />
-          <input className="input pl-10" placeholder="Search name / SKU / barcode..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input className="input pl-10" placeholder={serialEnabled ? 'Search name / SKU / barcode...' : 'Search name / SKU...'} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
-        <div className="relative flex-1 max-w-sm">
-          <ScanLine size={18} className="absolute left-3 top-2.5 text-brand-500" />
-          <input
-            className="input pl-10"
-            placeholder="Scan barcode to add stock / IMEI..."
-            value={scanCode}
-            onChange={(e) => setScanCode(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') onScan(); }}
-          />
-        </div>
+        {serialEnabled && (
+          <div className="relative flex-1 max-w-sm">
+            <ScanLine size={18} className="absolute left-3 top-2.5 text-brand-500" />
+            <input
+              className="input pl-10"
+              placeholder="Scan barcode to add stock / unit..."
+              value={scanCode}
+              onChange={(e) => setScanCode(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') onScan(); }}
+            />
+          </div>
+        )}
       </div>
 
       <DataTable columns={columns} rows={products} />
 
       <Modal open={modal} onClose={() => setModal(false)} title={editId ? 'Edit Product' : 'Add Product'} size="lg"
         footer={<>
-          {editId && form.barcode && <button className="btn-ghost mr-auto" onClick={() => setLabelFor(form)}><Tag size={16} /> Print Label</button>}
+          {serialEnabled && editId && form.barcode && <button className="btn-ghost mr-auto" onClick={() => setLabelFor(form)}><Tag size={16} /> Print Label</button>}
           <button className="btn-ghost" onClick={() => setModal(false)}>Cancel</button>
           <button className="btn-primary" onClick={save}>Save</button>
         </>}>
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2"><label className="label">Name</label><input className="input" value={form.name} onChange={set('name')} placeholder={isMobile ? 'e.g. iPhone 15 Pro' : ''} /></div>
-          <div>
-            <label className="label">Barcode</label>
-            <input className="input font-mono" value={form.barcode || ''} onChange={set('barcode')} placeholder="Auto-generated on save" />
-          </div>
+          {serialEnabled && (
+            <div>
+              <label className="label">Barcode</label>
+              <input className="input font-mono" value={form.barcode || ''} onChange={set('barcode')} placeholder="Auto-generated on save" />
+            </div>
+          )}
           <div><label className="label">SKU / Product Code</label><input className="input" value={form.sku || ''} onChange={set('sku')} placeholder="Optional" /></div>
           <div><label className="label">Category</label><input className="input" value={form.category} onChange={set('category')} /></div>
           <div><label className="label">Unit</label><input className="input" value={form.unit} onChange={set('unit')} /></div>
@@ -202,15 +210,18 @@ export default function Products() {
               <div><label className="label">Brand</label><input className="input" value={form.brand} onChange={set('brand')} placeholder="Apple, Samsung..." /></div>
               <div><label className="label">Storage (RAM/ROM)</label><input className="input" value={form.storage} onChange={set('storage')} placeholder="8GB/128GB" /></div>
               <div><label className="label">Color</label><input className="input" value={form.color} onChange={set('color')} placeholder="Black" /></div>
-              <div className="flex items-end">
-                <label className="inline-flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={!!form.trackSerial} onChange={setChk('trackSerial')} />
-                  Track by IMEI / Serial
-                </label>
-              </div>
               <div><label className="label">Brand Warranty (months)</label><input className="input" type="number" min="0" value={form.warrantyBrandMonths} onChange={set('warrantyBrandMonths')} /></div>
               <div><label className="label">Shop Warranty (months)</label><input className="input" type="number" min="0" value={form.warrantyShopMonths} onChange={set('warrantyShopMonths')} /></div>
             </>
+          )}
+
+          {serialEnabled && (
+            <div className="flex items-end">
+              <label className="inline-flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={!!form.trackSerial} onChange={setChk('trackSerial')} />
+                {isMobile ? 'Track by IMEI / Serial' : 'Track each unit with a unique code'}
+              </label>
+            </div>
           )}
 
           <div><label className="label">Purchase Price</label><input className="input" type="number" value={form.purchasePrice} onChange={set('purchasePrice')} /></div>
@@ -226,7 +237,7 @@ export default function Products() {
 
           {form.trackSerial ? (
             <div className="col-span-2 text-xs text-slate-500 bg-slate-50 dark:bg-slate-800 rounded-lg p-2">
-              Stock is managed automatically from the IMEI/serial units. {editId ? 'Use the IMEI button (▥) in the list to add devices.' : 'Save first, then add IMEIs from the list.'}
+              Stock is managed automatically from the unit codes. {editId ? `Use the ${isMobile ? 'IMEI' : 'unit'} button (▥) in the list to add ${isMobile ? 'devices' : 'unit codes'}.` : 'Save first, then add unit codes from the list.'}
             </div>
           ) : (
             <div><label className="label">Stock</label><input className="input" type="number" value={form.stock} onChange={set('stock')} /></div>
@@ -254,14 +265,14 @@ export default function Products() {
         </div>
       </Modal>
 
-      {unitsFor && <UnitsModal product={unitsFor} onClose={() => setUnitsFor(null)} onChanged={load} />}
-      {labelFor && <LabelPrintModal product={labelFor} business={business} onClose={() => setLabelFor(null)} onChanged={load} />}
+      {unitsFor && <UnitsModal product={unitsFor} isMobile={isMobile} onClose={() => setUnitsFor(null)} onChanged={load} />}
+      {labelFor && <LabelPrintModal product={labelFor} business={business} isMobile={isMobile} onClose={() => setLabelFor(null)} onChanged={load} />}
     </div>
   );
 }
 
-// ---- IMEI / Serial unit manager (mobile shops) ----
-function UnitsModal({ product, onClose, onChanged }) {
+// ---- Unique per-unit code manager (Mobile: IMEI/Serial · General: unique code) ----
+function UnitsModal({ product, isMobile, onClose, onChanged }) {
   const [units, setUnits] = useState([]);
   const [row, setRow] = useState({ imei1: '', imei2: '', serial: '' });
   const [bulk, setBulk] = useState('');
@@ -279,7 +290,7 @@ function UnitsModal({ product, onClose, onChanged }) {
     setLoading(true);
     try {
       await api.post('/units', { product: product._id, units: payloadUnits });
-      toast.success('Device(s) added');
+      toast.success(isMobile ? 'Device(s) added' : 'Unit(s) added');
       setRow({ imei1: '', imei2: '', serial: '' }); setBulk('');
       await load(); onChanged?.();
     } catch (e) { toast.error(e.response?.data?.message || 'Error adding units'); }
@@ -287,18 +298,23 @@ function UnitsModal({ product, onClose, onChanged }) {
   };
 
   const addOne = () => {
-    if (!row.imei1.trim() && !row.serial.trim()) return toast.error('Enter an IMEI or serial');
-    submit([row]);
+    if (isMobile) {
+      if (!row.imei1.trim() && !row.serial.trim()) return toast.error('Enter an IMEI or serial');
+      submit([row]);
+    } else {
+      if (!row.serial.trim()) return toast.error('Enter a unique code');
+      submit([{ serial: row.serial.trim() }]);
+    }
   };
   const addBulk = () => {
     const raw = bulk.split('\n').map((l) => l.trim()).filter(Boolean);
-    if (!raw.length) return toast.error('Paste at least one IMEI/serial');
+    if (!raw.length) return toast.error(isMobile ? 'Paste at least one IMEI/serial' : 'Paste at least one code');
     const unique = [...new Set(raw)]; // drop repeated lines instead of erroring
     if (unique.length < raw.length) toast(`Skipped ${raw.length - unique.length} duplicate line(s)`, { icon: '⚠️' });
-    submit(unique.map((imei1) => ({ imei1 })));
+    submit(unique.map((v) => (isMobile ? { imei1: v } : { serial: v })));
   };
-  // For items with no real IMEI (accessories, etc.): auto-create N unique serials
-  // so each unit gets its own scannable barcode label.
+  // For items with no real IMEI/code (accessories, general merchandise): auto-create
+  // N unique serials so each unit gets its own scannable barcode label.
   const generateSerials = () => {
     const n = Math.max(1, Math.min(200, Number(genCount) || 1));
     // 9-digit time slice + 3-digit index = 12 digits, matching product-barcode
@@ -315,26 +331,33 @@ function UnitsModal({ product, onClose, onChanged }) {
   const inStock = units.filter((u) => u.status === 'in_stock').length;
 
   return (
-    <Modal open onClose={onClose} title={`IMEIs — ${product.name}`} size="lg"
+    <Modal open onClose={onClose} title={isMobile ? `IMEIs — ${product.name}` : `Unique Codes — ${product.name}`} size="lg"
       footer={<button className="btn-ghost" onClick={onClose}>Close</button>}>
       <p className="text-sm text-slate-500 mb-3">In stock: <strong>{inStock}</strong> • Total units: {units.length}</p>
 
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end mb-3">
-        <div><label className="label">IMEI 1</label><input className="input" value={row.imei1} onChange={(e) => setRow({ ...row, imei1: e.target.value })} /></div>
-        <div><label className="label">IMEI 2</label><input className="input" value={row.imei2} onChange={(e) => setRow({ ...row, imei2: e.target.value })} /></div>
-        <div><label className="label">Serial</label><input className="input" value={row.serial} onChange={(e) => setRow({ ...row, serial: e.target.value })} /></div>
-        <button className="btn-primary" disabled={loading} onClick={addOne}><Plus size={16} /> Add</button>
-      </div>
+      {isMobile ? (
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end mb-3">
+          <div><label className="label">IMEI 1</label><input className="input" value={row.imei1} onChange={(e) => setRow({ ...row, imei1: e.target.value })} /></div>
+          <div><label className="label">IMEI 2</label><input className="input" value={row.imei2} onChange={(e) => setRow({ ...row, imei2: e.target.value })} /></div>
+          <div><label className="label">Serial</label><input className="input" value={row.serial} onChange={(e) => setRow({ ...row, serial: e.target.value })} /></div>
+          <button className="btn-primary" disabled={loading} onClick={addOne}><Plus size={16} /> Add</button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-end mb-3">
+          <div><label className="label">Unique Code</label><input className="input" value={row.serial} onChange={(e) => setRow({ ...row, serial: e.target.value })} /></div>
+          <button className="btn-primary" disabled={loading} onClick={addOne}><Plus size={16} /> Add</button>
+        </div>
+      )}
 
       <div className="mb-4">
-        <label className="label">Bulk add (one IMEI per line)</label>
+        <label className="label">Bulk add (one {isMobile ? 'IMEI' : 'code'} per line)</label>
         <textarea className="input h-20" value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder="356789...&#10;356790..." />
         <button className="btn-ghost mt-2" disabled={loading} onClick={addBulk}>Add All</button>
       </div>
 
       <div className="mb-4 bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
-        <label className="label">No IMEI? Generate unique serials</label>
-        <p className="text-xs text-slate-400 mb-2">Creates unique auto-serial numbers so each item gets its own scannable barcode (useful for accessories without an IMEI).</p>
+        <label className="label">{isMobile ? 'No IMEI? Generate unique serials' : 'Generate unique codes'}</label>
+        <p className="text-xs text-slate-400 mb-2">Creates unique auto-numbers so each unit gets its own scannable barcode{isMobile ? ' (useful for accessories without an IMEI)' : ''}.</p>
         <div className="flex items-end gap-2">
           <div><label className="label">How many</label><input className="input !w-28" type="number" min="1" max="200" value={genCount} onChange={(e) => setGenCount(e.target.value)} /></div>
           <button className="btn-primary" disabled={loading} onClick={generateSerials}><Plus size={16} /> Generate &amp; Add</button>
@@ -344,15 +367,29 @@ function UnitsModal({ product, onClose, onChanged }) {
       <div className="max-h-64 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 dark:bg-slate-700/50 text-left">
-            <tr><th className="px-3 py-2">IMEI 1</th><th className="px-3 py-2">IMEI 2</th><th className="px-3 py-2">Serial</th><th className="px-3 py-2">Status</th><th></th></tr>
+            {isMobile ? (
+              <tr><th className="px-3 py-2">IMEI 1</th><th className="px-3 py-2">IMEI 2</th><th className="px-3 py-2">Serial</th><th className="px-3 py-2">Status</th><th></th></tr>
+            ) : (
+              <tr><th className="px-3 py-2">Code</th><th className="px-3 py-2">Status</th><th></th></tr>
+            )}
           </thead>
           <tbody>
-            {units.length === 0 && <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400">No units yet</td></tr>}
-            {units.map((u) => (
+            {units.length === 0 && <tr><td colSpan={isMobile ? 5 : 3} className="px-3 py-6 text-center text-slate-400">No units yet</td></tr>}
+            {isMobile ? units.map((u) => (
               <tr key={u._id} className="border-t border-slate-100 dark:border-slate-700">
                 <td className="px-3 py-2">{u.imei1 || '—'}</td>
                 <td className="px-3 py-2">{u.imei2 || '—'}</td>
                 <td className="px-3 py-2">{u.serial || '—'}</td>
+                <td className="px-3 py-2">
+                  <span className={`badge ${u.status === 'in_stock' ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}`}>{u.status === 'in_stock' ? 'In-Stock' : 'Sold'}</span>
+                </td>
+                <td className="px-3 py-2 text-right">
+                  {u.status === 'in_stock' && <button className="text-red-500" onClick={() => remove(u)}><Trash2 size={14} /></button>}
+                </td>
+              </tr>
+            )) : units.map((u) => (
+              <tr key={u._id} className="border-t border-slate-100 dark:border-slate-700">
+                <td className="px-3 py-2 font-mono">{u.serial || u.imei1 || '—'}</td>
                 <td className="px-3 py-2">
                   <span className={`badge ${u.status === 'in_stock' ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-600'}`}>{u.status === 'in_stock' ? 'In-Stock' : 'Sold'}</span>
                 </td>
