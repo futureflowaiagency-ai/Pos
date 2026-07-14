@@ -29,10 +29,17 @@ export const getServiceJob = asyncHandler(async (req, res) => {
   ok(res, { job });
 });
 
+// Customer bill = serviceFee ONLY. partsCost/technicianCost never add to what the
+// customer is charged — they only reduce the shop's internal profit.
 const computeTotal = (body, current = {}) => {
   const fee = Number(body.serviceFee ?? current.serviceFee ?? 0);
+  return Math.round(fee * 100) / 100;
+};
+const computeProfit = (body, current = {}) => {
+  const fee = Number(body.serviceFee ?? current.serviceFee ?? 0);
   const parts = Number(body.partsCost ?? current.partsCost ?? 0);
-  return Math.round((fee + parts) * 100) / 100;
+  const tech = Number(body.technicianCost ?? current.technicianCost ?? 0);
+  return Math.round((fee - parts - tech) * 100) / 100;
 };
 
 // @route POST /api/services
@@ -42,11 +49,13 @@ export const createServiceJob = asyncHandler(async (req, res) => {
   if (!deviceModel?.trim()) throw new ApiError(400, 'Device model is required');
 
   const total = computeTotal(req.body);
+  const profit = computeProfit(req.body);
   const job = await ServiceJob.create({
     ...req.body,
     business: req.businessId,
     jobNo: genJobNo(),
     total,
+    profit,
     status: 'pending',
     statusHistory: [{ status: 'pending', at: new Date() }],
     createdBy: req.user._id,
@@ -60,9 +69,10 @@ export const updateServiceJob = asyncHandler(async (req, res) => {
   const job = await ServiceJob.findOne(tenantFilter(req, { _id: req.params.id }));
   if (!job) throw new ApiError(404, 'Service job not found');
 
-  const fields = ['customerName', 'customerPhone', 'customer', 'deviceModel', 'imei', 'problem', 'budget', 'technician', 'serviceFee', 'partsCost', 'paid'];
+  const fields = ['customerName', 'customerPhone', 'customer', 'deviceModel', 'imei', 'problem', 'budget', 'technician', 'serviceFee', 'partsCost', 'technicianCost', 'paid', 'paymentMethod'];
   fields.forEach((f) => { if (req.body[f] !== undefined) job[f] = req.body[f]; });
   job.total = computeTotal(req.body, job);
+  job.profit = computeProfit(req.body, job);
   await job.save();
   await logActivity(req, { action: 'UPDATE_SERVICE_JOB', entity: 'ServiceJob', entityId: job._id });
   ok(res, { job }, 'Service job updated');

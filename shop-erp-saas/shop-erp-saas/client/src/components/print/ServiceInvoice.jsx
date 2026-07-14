@@ -3,7 +3,7 @@ import { taka, fmtDateTime } from '../../utils/format.js';
 // A4 service / repair invoice — mobile shop job sheets
 export default function ServiceInvoice({ job, business }) {
   if (!job) return null;
-  const total = job.total ?? ((job.serviceFee || 0) + (job.partsCost || 0));
+  const total = job.total ?? (job.serviceFee || 0); // customer bill = service charge only
   const due = Math.max(0, total - (job.paid || 0));
   return (
     <div className="print-a4">
@@ -53,13 +53,11 @@ export default function ServiceInvoice({ job, business }) {
           </tr>
         </thead>
         <tbody>
-          <tr><td style={td}>Service / Labour Fee</td><td style={tdR}>{taka(job.serviceFee || 0)}</td></tr>
-          <tr><td style={td}>Parts Cost</td><td style={tdR}>{taka(job.partsCost || 0)}</td></tr>
+          <tr><td style={td}>Service Charge</td><td style={tdR}>{taka(total)}</td></tr>
         </tbody>
       </table>
 
       <div style={{ marginTop: 12, marginLeft: 'auto', width: 240 }}>
-        <Row label="Total" value={taka(total)} bold />
         <Row label="Paid" value={taka(job.paid || 0)} />
         <Row label="Due" value={taka(due)} bold />
       </div>

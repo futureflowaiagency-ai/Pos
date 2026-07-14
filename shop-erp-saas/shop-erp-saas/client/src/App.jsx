@@ -11,6 +11,8 @@ import Customers from './pages/Customers.jsx';
 import Suppliers from './pages/Suppliers.jsx';
 import Employees from './pages/Employees.jsx';
 import Finance from './pages/Finance.jsx';
+import Returns from './pages/Returns.jsx';
+import ImportExport from './pages/ImportExport.jsx';
 import Subscription from './pages/Subscription.jsx';
 import Settings from './pages/Settings.jsx';
 import ActivityLogs from './pages/ActivityLogs.jsx';
@@ -35,6 +37,8 @@ export default function App() {
         <Route path="/suppliers" element={<Suppliers />} />
         <Route path="/employees" element={<Employees />} />
         <Route path="/finance" element={<Finance />} />
+        <Route path="/returns" element={<Returns />} />
+        <Route path="/import-export" element={<ImportExport />} />
         <Route path="/subscription" element={<Subscription />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/activity" element={<ActivityLogs />} />

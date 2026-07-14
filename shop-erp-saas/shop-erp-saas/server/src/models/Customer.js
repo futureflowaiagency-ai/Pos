@@ -10,6 +10,8 @@ const customerSchema = new mongoose.Schema(
     // KYC / identity (used by mobile shops to record NID at point of sale)
     nid: { type: String, trim: true, default: '' },
     totalDue: { type: Number, default: 0 },
+    // credit balance from returns/exchanges (req 14) — redeemable on a future purchase
+    storeCredit: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

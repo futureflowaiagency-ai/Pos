@@ -22,6 +22,8 @@ const purchaseSchema = new mongoose.Schema(
     total: { type: Number, default: 0 },
     paid: { type: Number, default: 0 },
     due: { type: Number, default: 0 },
+    // which balance the `paid` amount came from — feeds the dashboard balance engine (outflow)
+    source: { type: String, enum: ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'], default: 'cash' },
     // 'purchase' = goods received, 'payment' = a standalone payment against due
     kind: { type: String, enum: ['purchase', 'payment'], default: 'purchase' },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

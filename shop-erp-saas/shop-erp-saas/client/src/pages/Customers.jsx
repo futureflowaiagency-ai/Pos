@@ -20,6 +20,7 @@ export default function Customers() {
   const [history, setHistory] = useState(null);
   const [dueModal, setDueModal] = useState(null);
   const [dueAmount, setDueAmount] = useState(0);
+  const [dueMethod, setDueMethod] = useState('cash');
   const [printDue, setPrintDue] = useState(null);
   // reprint a past invoice from a customer's history (unlimited times)
   const [printSale, setPrintSale] = useState(null);
@@ -42,10 +43,11 @@ export default function Customers() {
   };
   const viewHistory = async (c) => { const { data } = await api.get(`/customers/${c._id}/history`); setHistory(data.data); };
   const collectDue = async () => {
-    const { data } = await api.post(`/customers/${dueModal._id}/collect-due`, { amount: Number(dueAmount) });
+    if (!(Number(dueAmount) > 0)) return toast.error('Enter a valid amount');
+    const { data } = await api.post(`/customers/${dueModal._id}/collect-due`, { amount: Number(dueAmount), method: dueMethod });
     toast.success('Due collected');
-    setPrintDue({ customer: data.data.customer, amount: Number(dueAmount) });
-    setDueModal(null); setDueAmount(0); load();
+    setPrintDue({ customer: data.data.customer, amount: data.data.duePayment.amount, method: dueMethod });
+    setDueModal(null); setDueAmount(0); setDueMethod('cash'); load();
   };
 
   return (
@@ -61,6 +63,9 @@ export default function Customers() {
           { key: 'phone', label: 'Phone' },
           { key: 'totalDue', label: 'Due', className: 'text-right', render: (r) => (
             <span className={r.totalDue > 0 ? 'text-red-500 font-semibold' : ''}>{taka(r.totalDue)}</span>
+          )},
+          { key: 'storeCredit', label: 'Store Credit', className: 'text-right', render: (r) => (
+            r.storeCredit > 0 ? <span className="text-green-600 font-semibold">{taka(r.storeCredit)}</span> : <span className="text-slate-400">—</span>
           )},
           { key: 'actions', label: '', className: 'text-right', render: (r) => (
             <div className="flex justify-end gap-1">
@@ -108,13 +113,24 @@ export default function Customers() {
       <Modal open={!!dueModal} onClose={() => setDueModal(null)} title={`Collect Due — ${dueModal?.name}`}
         footer={<><button className="btn-ghost" onClick={() => setDueModal(null)}>Cancel</button><button className="btn-primary" onClick={collectDue}>Collect</button></>}>
         <p className="text-sm mb-2">Current due: <strong className="text-red-500">{taka(dueModal?.totalDue)}</strong></p>
-        <label className="label">Amount to collect</label>
-        <input className="input" type="number" value={dueAmount} onChange={(e) => setDueAmount(e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Amount to collect</label>
+            <input className="input" type="number" value={dueAmount} onChange={(e) => setDueAmount(e.target.value)} />
+          </div>
+          <div>
+            <label className="label">Method</label>
+            <select className="input" value={dueMethod} onChange={(e) => setDueMethod(e.target.value)}>
+              <option value="cash">Cash</option><option value="bank">Bank</option><option value="bkash">bKash</option>
+              <option value="nagad">Nagad</option><option value="rocket">Rocket</option><option value="card">Card</option>
+            </select>
+          </div>
+        </div>
       </Modal>
 
       {/* Due receipt print */}
       <PrintWrapper open={!!printDue} onClose={() => setPrintDue(null)} title="Due Receipt">
-        {printDue && <DueReceipt customer={printDue.customer} amount={printDue.amount} business={business} />}
+        {printDue && <DueReceipt customer={printDue.customer} amount={printDue.amount} method={printDue.method} business={business} />}
       </PrintWrapper>
 
       {/* Invoice reprint from history */}

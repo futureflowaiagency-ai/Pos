@@ -18,6 +18,11 @@ import serviceRoutes from './serviceRoutes.js';
 import uploadRoutes from './uploadRoutes.js';
 import marketingRoutes from './marketingRoutes.js';
 import crmRoutes from './crmRoutes.js';
+import fundRoutes from './fundRoutes.js';
+import reportRoutes from './reportRoutes.js';
+import returnRoutes from './returnRoutes.js';
+import exportRoutes from './exportRoutes.js';
+import importRoutes from './importRoutes.js';
 
 const router = Router();
 
@@ -41,6 +46,11 @@ router.use('/services', serviceRoutes);
 router.use('/upload', uploadRoutes);
 router.use('/marketing', marketingRoutes);
 router.use('/crm', crmRoutes);
+router.use('/funds', fundRoutes);
+router.use('/reports', reportRoutes);
+router.use('/returns', returnRoutes);
+router.use('/export', exportRoutes);
+router.use('/import', importRoutes);
 
 router.get('/health', (req, res) => res.json({ success: true, message: 'API healthy', ts: Date.now() }));
 

@@ -4,6 +4,7 @@ import { ok, created } from '../utils/apiResponse.js';
 import { tenantFilter } from '../middleware/tenant.js';
 import { logActivity } from '../middleware/activityLogger.js';
 import Employee from '../models/Employee.js';
+import Expense from '../models/Expense.js';
 
 // Generate the next sequential employee id for a business (collision-safe even after deletes)
 const nextEmployeeId = async (businessId) => {
@@ -79,12 +80,16 @@ export const deleteEmployee = asyncHandler(async (req, res) => {
 });
 
 // pay or record salary for a month
+// body: { month, amount, status='paid', source='cash' }
+// When a month is newly marked "paid", the salary is booked as an Expense
+// (category 'Salary') so it flows into total expense + the balance engine.
 export const paySalary = asyncHandler(async (req, res) => {
-  const { month, amount, status = 'paid' } = req.body;
+  const { month, amount, status = 'paid', source = 'cash' } = req.body;
   const employee = await Employee.findOne(tenantFilter(req, { _id: req.params.id }));
   if (!employee) throw new ApiError(404, 'Employee not found');
 
   const existing = employee.salaryHistory.find((s) => s.month === month);
+  const wasPaid = existing?.status === 'paid';
   if (existing) {
     existing.amount = amount;
     existing.status = status;
@@ -93,6 +98,19 @@ export const paySalary = asyncHandler(async (req, res) => {
     employee.salaryHistory.push({ month, amount, status, paidAt: status === 'paid' ? new Date() : undefined });
   }
   await employee.save();
+
+  // Book the expense once, when the month first becomes paid (avoids double-counting on edits).
+  if (status === 'paid' && !wasPaid && Number(amount) > 0) {
+    await Expense.create({
+      business: req.businessId,
+      title: `Salary — ${employee.name} (${month})`,
+      category: 'Salary',
+      amount: Number(amount),
+      source: ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'].includes(source) ? source : 'cash',
+      note: `Employee ${employee.employeeId}`,
+    });
+  }
+
   await logActivity(req, { action: 'PAY_SALARY', entity: 'Employee', entityId: employee._id, meta: { month, amount, status } });
   ok(res, { employee }, 'Salary recorded');
 });

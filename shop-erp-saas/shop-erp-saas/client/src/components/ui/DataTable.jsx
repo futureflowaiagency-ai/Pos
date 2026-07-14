@@ -1,5 +1,6 @@
 // Lightweight, fast table. columns: [{ key, label, render?, className? }]
-export default function DataTable({ columns, rows, empty = 'No data found', rowKey = '_id' }) {
+// Optional onRowClick(row) makes rows clickable.
+export default function DataTable({ columns, rows, empty = 'No data found', rowKey = '_id', onRowClick }) {
   return (
     <div className="card overflow-hidden">
       <div className="overflow-x-auto">
@@ -16,7 +17,11 @@ export default function DataTable({ columns, rows, empty = 'No data found', rowK
               <tr><td colSpan={columns.length} className="px-4 py-10 text-center text-slate-400">{empty}</td></tr>
             ) : (
               rows.map((row) => (
-                <tr key={row[rowKey]} className="border-t border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/40">
+                <tr
+                  key={row[rowKey]}
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  className={`border-t border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/40 ${onRowClick ? 'cursor-pointer' : ''}`}
+                >
                   {columns.map((c) => (
                     <td key={c.key} className={`px-4 py-3 ${c.className || ''}`}>
                       {c.render ? c.render(row) : row[c.key]}

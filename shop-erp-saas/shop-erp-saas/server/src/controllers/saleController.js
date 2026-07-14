@@ -8,6 +8,9 @@ import Sale from '../models/Sale.js';
 import Product from '../models/Product.js';
 import Customer from '../models/Customer.js';
 import PhoneUnit from '../models/PhoneUnit.js';
+import DuePayment from '../models/DuePayment.js';
+
+const TENDERS = ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'];
 
 const genInvoiceNo = () =>
   'INV-' + Date.now().toString().slice(-8) + '-' + Math.floor(Math.random() * 90 + 10);
@@ -128,6 +131,8 @@ export const createSale = asyncHandler(async (req, res) => {
         subTotal, discount, total, paid, due,
         profit: profit - discount, // discount reduces realized profit
         paymentMethod: due > 0 ? 'due' : paymentMethod,
+        // real tender for the paid portion — 'due'/'emi' aren't real tenders, fall back to cash
+        paidVia: ['due', 'emi'].includes(paymentMethod) ? 'cash' : paymentMethod,
         soldBy: req.user._id,
       }], { session });
 
@@ -169,11 +174,82 @@ export const getSales = asyncHandler(async (req, res) => {
   ok(res, { sales, count: sales.length });
 });
 
-// @route GET /api/sales/:id
+// @route GET /api/sales/:id  — full invoice + its due-payment history
 export const getSale = asyncHandler(async (req, res) => {
   const sale = await Sale.findOne(tenantFilter(req, { _id: req.params.id }));
   if (!sale) throw new ApiError(404, 'Sale not found');
-  ok(res, { sale });
+  const duePayments = await DuePayment.find(tenantFilter(req, { sale: sale._id })).sort('date');
+  ok(res, { sale, duePayments });
+});
+
+// @route PATCH /api/sales/:id  — edit an invoice's money fields + customer name.
+// body: { discount?, paid?, paymentMethod?, customerName? }
+// Line items are not edited here (stock/IMEI reversal is out of scope); use
+// Return & Exchange (Phase 9) for item changes.
+export const updateSale = asyncHandler(async (req, res) => {
+  const sale = await Sale.findOne(tenantFilter(req, { _id: req.params.id }));
+  if (!sale) throw new ApiError(404, 'Sale not found');
+  const { discount, paid, paymentMethod, customerName } = req.body;
+  const oldDue = sale.due;
+
+  if (discount != null) sale.discount = Math.max(0, Number(discount) || 0);
+  if (paid != null) sale.paid = Math.max(0, Number(paid) || 0);
+  if (customerName != null && String(customerName).trim()) sale.customerName = String(customerName).trim();
+
+  // recompute totals from the (unchanged) line items
+  const itemProfit = sale.items.reduce((s, i) => s + ((i.sellingPrice - i.purchasePrice) * i.qty), 0);
+  sale.total = Math.max(0, sale.subTotal - sale.discount);
+  sale.due = Math.max(0, sale.total - sale.paid);
+  sale.profit = itemProfit - sale.discount;
+
+  if (TENDERS.includes(paymentMethod)) sale.paidVia = paymentMethod;
+  // classification/badge: 'due' while owing, else the real tender
+  sale.paymentMethod = sale.due > 0 ? 'due' : (TENDERS.includes(sale.paidVia) ? sale.paidVia : 'cash');
+
+  await sale.save();
+
+  // keep the customer's aggregate due in sync by the change delta
+  if (sale.customer) {
+    const delta = sale.due - oldDue;
+    if (delta !== 0) {
+      await Customer.updateOne(tenantFilter(req, { _id: sale.customer }), { $inc: { totalDue: delta } });
+      await Customer.updateOne(tenantFilter(req, { _id: sale.customer, totalDue: { $lt: 0 } }), { $set: { totalDue: 0 } });
+    }
+  }
+  await logActivity(req, { action: 'UPDATE_SALE', entity: 'Sale', entityId: sale._id, meta: { invoiceNo: sale.invoiceNo } });
+  ok(res, { sale }, 'Invoice updated');
+});
+
+// @route POST /api/sales/:id/collect-due  — pay down a specific invoice's due.
+// body: { amount, method }. Records a DuePayment (history + balance), clears the
+// DUE badge when settled (req 4), and returns data for the due-payment invoice (req 11).
+export const collectSaleDue = asyncHandler(async (req, res) => {
+  const { amount, method = 'cash' } = req.body;
+  const amt = Number(amount);
+  if (!amt || amt <= 0) throw new ApiError(400, 'Enter a valid amount');
+  const m = TENDERS.includes(method) ? method : 'cash';
+
+  const sale = await Sale.findOne(tenantFilter(req, { _id: req.params.id }));
+  if (!sale) throw new ApiError(404, 'Sale not found');
+  if (sale.due <= 0) throw new ApiError(400, 'This invoice has no due');
+
+  const pay = Math.min(amt, sale.due);
+  const previousDue = sale.due;
+  sale.due = Math.max(0, sale.due - pay);
+  if (sale.due === 0) sale.paymentMethod = m; // settled → DUE badge clears
+  await sale.save();
+
+  if (sale.customer) {
+    await Customer.updateOne(tenantFilter(req, { _id: sale.customer }), { $inc: { totalDue: -pay } });
+    await Customer.updateOne(tenantFilter(req, { _id: sale.customer, totalDue: { $lt: 0 } }), { $set: { totalDue: 0 } });
+  }
+
+  const duePayment = await DuePayment.create({
+    business: req.businessId, customer: sale.customer, sale: sale._id,
+    amount: pay, method: m, previousDue, remainingDue: sale.due, collectedBy: req.user._id,
+  });
+  await logActivity(req, { action: 'COLLECT_DUE', entity: 'Sale', entityId: sale._id, meta: { amount: pay, method: m } });
+  ok(res, { sale, duePayment }, 'Due collected');
 });
 
 // @route GET /api/sales/report?period=daily|monthly

@@ -6,6 +6,8 @@ const expenseSchema = new mongoose.Schema(
     title: { type: String, required: true, trim: true },
     category: { type: String, default: 'General' },
     amount: { type: Number, required: true, default: 0 },
+    // which balance the expense is paid from (drives dashboard balance engine)
+    source: { type: String, enum: ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'], default: 'cash' },
     note: { type: String },
     date: { type: Date, default: Date.now },
   },

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DollarSign, TrendingUp, Package, AlertTriangle, ShoppingBag, Users, Trophy, Receipt, Activity, Sparkles } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, Package, AlertTriangle, ShoppingBag, Users, Trophy, Receipt, Activity, Sparkles, Banknote, Landmark, Smartphone, Wallet, CreditCard, Wrench, CalendarClock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios.js';
 import StatCard from '../components/ui/StatCard.jsx';
@@ -7,6 +7,7 @@ import RevenueChart from '../components/charts/RevenueChart.jsx';
 import PaymentPie from '../components/charts/PaymentPie.jsx';
 import Spinner from '../components/ui/Spinner.jsx';
 import DataTable from '../components/ui/DataTable.jsx';
+import OrderDetailsModal from '../components/OrderDetailsModal.jsx';
 import { taka, fmtDateTime } from '../utils/format.js';
 import { useLang } from '../context/LanguageContext.jsx';
 
@@ -18,20 +19,35 @@ export default function Dashboard() {
   const [chart, setChart] = useState([]);
   const [aiText, setAiText] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
+  // dashboard date filter
+  const [period, setPeriod] = useState('monthly');
+  const [custom, setCustom] = useState({ from: '', to: '' });
+  const [openOrder, setOpenOrder] = useState(null); // saleId for the details modal
+
+  const loadSummary = async () => {
+    const params = { period };
+    if (period === 'custom') { params.from = custom.from; params.to = custom.to; }
+    const s = await api.get('/dashboard/summary', { params });
+    setData(s.data.data);
+  };
+
+  useEffect(() => {
+    if (period === 'custom' && (!custom.from || !custom.to)) return; // wait for both dates
+    loadSummary();
+  }, [period, custom.from, custom.to]);
 
   useEffect(() => {
     (async () => {
-      const [s, c] = await Promise.all([
-        api.get('/dashboard/summary'),
-        api.get('/dashboard/revenue-chart'),
-      ]);
-      setData(s.data.data);
+      const c = await api.get('/dashboard/revenue-chart');
       setChart(c.data.data.chart);
     })();
   }, []);
 
   if (!data) return <Spinner />;
   const s = data.summary;
+  const bal = s.balances || {};
+  const svc = s.service || {};
+  const periodLabels = { daily: 'Today', weekly: 'This Week', monthly: 'This Month', half_yearly: 'Last 6 Months', yearly: 'This Year', custom: 'Custom Range' };
 
   const genAiSummary = async () => {
     setAiLoading(true);
@@ -44,17 +60,71 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Dashboard</h1>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h1 className="text-2xl font-bold">Dashboard</h1>
+        <div className="flex items-center gap-2 flex-wrap">
+          <select className="input !w-auto !py-1.5" value={period} onChange={(e) => setPeriod(e.target.value)}>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="half_yearly">Half-Yearly</option>
+            <option value="yearly">Yearly</option>
+            <option value="custom">Custom Range</option>
+          </select>
+          {period === 'custom' && (
+            <>
+              <input type="date" className="input !w-auto !py-1.5" value={custom.from} onChange={(e) => setCustom({ ...custom, from: e.target.value })} />
+              <span className="text-slate-400">→</span>
+              <input type="date" className="input !w-auto !py-1.5" value={custom.to} onChange={(e) => setCustom({ ...custom, to: e.target.value })} />
+            </>
+          )}
+        </div>
+      </div>
 
+      {/* Financial summary — respects the date filter */}
+      <div>
+        <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-2">Financial Summary · {periodLabels[period]}</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+          <StatCard icon={DollarSign} label="Total Income" value={taka(s.periodRevenue ?? s.monthRevenue)} sub={`${s.periodSalesCount ?? s.monthSalesCount} orders`} accent="brand" />
+          <StatCard icon={TrendingDown} label="Total Expense" value={taka(s.periodExpense ?? s.monthExpense)} accent="red" />
+          <StatCard icon={TrendingUp} label="Total Profit" value={taka(s.periodNetProfit ?? s.netProfit)} accent={(s.periodNetProfit ?? s.netProfit) >= 0 ? 'green' : 'red'} />
+          <StatCard icon={AlertTriangle} label="Total Due" value={taka(s.totalDue)} accent="red" />
+          <StatCard icon={CalendarClock} label="EMI Receivable" value={taka(s.emiReceivable || 0)} sub={`${s.activeEmiCount || 0} active plan(s)`} accent="amber" />
+        </div>
+      </div>
+
+      {/* Balances — cumulative money on hand per method */}
+      <div>
+        <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-2">Balances</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-4">
+          <StatCard icon={Banknote} label="Cash" value={taka(bal.cash || 0)} accent="green" />
+          <StatCard icon={Landmark} label="Bank" value={taka(bal.bank || 0)} accent="brand" />
+          <StatCard icon={Smartphone} label="bKash" value={taka(bal.bkash || 0)} accent="brand" />
+          <StatCard icon={Smartphone} label="Nagad" value={taka(bal.nagad || 0)} accent="amber" />
+          <StatCard icon={Wallet} label="Rocket" value={taka(bal.rocket || 0)} accent="brand" />
+          <StatCard icon={CreditCard} label="Card Collection" value={taka(bal.card || 0)} accent="brand" />
+        </div>
+      </div>
+
+      {/* Service & Repair — internal profit breakdown, respects the date filter */}
+      {svc.count > 0 && (
+        <div>
+          <p className="text-sm font-semibold text-slate-500 dark:text-slate-400 mb-2">Service &amp; Repair · {periodLabels[period]}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+            <StatCard icon={Wrench} label="Service Revenue" value={taka(svc.revenue)} sub={`${svc.count} job(s)`} accent="brand" />
+            <StatCard icon={TrendingDown} label="Parts Cost" value={taka(svc.partsCost)} accent="red" />
+            <StatCard icon={TrendingDown} label="Technician Cost" value={taka(svc.technicianCost)} accent="red" />
+            <StatCard icon={TrendingUp} label="Net Profit" value={taka(svc.netProfit)} accent={svc.netProfit >= 0 ? 'green' : 'red'} />
+          </div>
+        </div>
+      )}
+
+      {/* Operational stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard icon={DollarSign} label="Month Revenue" value={taka(s.monthRevenue)} accent="brand" />
-        <StatCard icon={TrendingUp} label="Net Profit" value={taka(s.netProfit)} sub={`Expense ${taka(s.monthExpense)}`} accent="green" />
         <StatCard icon={ShoppingBag} label="Today's Sales" value={taka(s.todayRevenue)} sub={`${s.todaySalesCount} orders`} accent="brand" />
-        <StatCard icon={AlertTriangle} label="Total Due" value={taka(s.totalDue)} accent="red" />
         <StatCard icon={Package} label="Products" value={s.totalProducts} accent="brand" />
         <StatCard icon={AlertTriangle} label="Low Stock" value={s.lowStockCount} accent="amber" />
         <StatCard icon={Users} label="Employees" value={s.employeesCount} accent="brand" />
-        <StatCard icon={ShoppingBag} label="Month Orders" value={s.monthSalesCount} accent="green" />
       </div>
 
       {/* AI Summary */}
@@ -92,15 +162,18 @@ export default function Dashboard() {
         </div>
 
         <div className="card p-4">
-          <h3 className="font-semibold mb-3 flex items-center gap-2"><Receipt size={18} className="text-brand-600" /> Recent Orders</h3>
+          <h3 className="font-semibold mb-3 flex items-center gap-2"><Receipt size={18} className="text-brand-600" /> Recent Orders <span className="text-xs font-normal text-slate-400">(click a row for details)</span></h3>
           <DataTable
             columns={[
               { key: 'invoiceNo', label: 'Invoice' },
               { key: 'customerName', label: 'Customer' },
-              { key: 'paymentMethod', label: 'Pay', render: (r) => <span className="text-xs uppercase font-semibold text-slate-500">{r.paymentMethod}</span> },
+              { key: 'paymentMethod', label: 'Pay', render: (r) => (
+                <span className={`text-xs uppercase font-semibold ${r.paymentMethod === 'due' ? 'text-red-500' : 'text-slate-500'}`}>{r.paymentMethod}</span>
+              ) },
               { key: 'total', label: 'Total', className: 'text-right', render: (r) => taka(r.total) },
             ]}
             rows={data.recentOrders}
+            onRowClick={(r) => setOpenOrder(r._id)}
             empty="No orders yet"
           />
         </div>
@@ -132,6 +205,14 @@ export default function Dashboard() {
           </ul>
         ) : <p className="text-sm text-slate-400">No recent activity</p>}
       </div>
+
+      {openOrder && (
+        <OrderDetailsModal
+          saleId={openOrder}
+          onClose={() => setOpenOrder(null)}
+          onChanged={loadSummary}
+        />
+      )}
     </div>
   );
 }

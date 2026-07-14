@@ -15,6 +15,8 @@ const businessSchema = new mongoose.Schema(
     settings: {
       lowStockThreshold: { type: Number, default: 5 },
       printMode: { type: String, enum: ['a4', 'thermal'], default: 'a4' },
+      // Return & Exchange window in days (req 14) — past this, only owner/superadmin may process
+      returnWindowDays: { type: Number, enum: [3, 7, 30], default: 7 },
     },
     // per-shop custom subscription price set by super admin.
     // when enabled, this single plan replaces the default plans on the subscription page.

@@ -7,18 +7,41 @@ import Product from '../models/Product.js';
 import Customer from '../models/Customer.js';
 import Expense from '../models/Expense.js';
 import Employee from '../models/Employee.js';
+import ServiceJob from '../models/ServiceJob.js';
+import Installment from '../models/Installment.js';
 import ActivityLog from '../models/ActivityLog.js';
 import MarketingSettings from '../models/MarketingSettings.js';
 import { decryptSecret } from '../utils/secretCrypto.js';
 import { generateText, hasCentralAI } from '../services/aiService.js';
+import { computeBalances } from '../services/balanceService.js';
 
-// @route GET /api/dashboard/summary
+// Resolve a { from, to } window from a named period or an explicit custom range.
+// period: daily | weekly | monthly | half_yearly | yearly | custom
+function resolveRange(period = 'monthly', from, to) {
+  const now = new Date();
+  let start;
+  const end = to ? new Date(to + 'T23:59:59') : now;
+  switch (period) {
+    case 'daily': start = new Date(); start.setHours(0, 0, 0, 0); break;
+    case 'weekly': start = new Date(); start.setDate(start.getDate() - 6); start.setHours(0, 0, 0, 0); break;
+    case 'half_yearly': start = new Date(now.getFullYear(), now.getMonth() - 5, 1); break;
+    case 'yearly': start = new Date(now.getFullYear(), 0, 1); break;
+    case 'custom': start = from ? new Date(from) : new Date(now.getFullYear(), now.getMonth(), 1); break;
+    case 'monthly':
+    default: start = new Date(now.getFullYear(), now.getMonth(), 1); break;
+  }
+  return { from: start, to: end };
+}
+
+// @route GET /api/dashboard/summary?period=&from=&to=
 export const dashboardSummary = asyncHandler(async (req, res) => {
   const bId = new mongoose.Types.ObjectId(req.businessId);
+  const { period = 'monthly', from, to } = req.query;
+  const range = resolveRange(period, from, to);
   const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
 
-  const [salesAgg, todayAgg, expenseAgg, products, dueAgg, employeesCount, topProducts, recentOrders, paymentAgg, recentActivities] = await Promise.all([
+  const [salesAgg, todayAgg, expenseAgg, products, dueAgg, employeesCount, topProducts, recentOrders, paymentAgg, recentActivities, periodSalesAgg, periodExpenseAgg, balances, periodServiceAgg, activeEmis] = await Promise.all([
     Sale.aggregate([
       { $match: { business: bId, createdAt: { $gte: startOfMonth } } },
       { $group: { _id: null, revenue: { $sum: '$total' }, profit: { $sum: '$profit' }, count: { $sum: 1 } } },
@@ -55,12 +78,42 @@ export const dashboardSummary = asyncHandler(async (req, res) => {
     ]),
     // Recent activity log
     ActivityLog.find({ business: bId }).sort('-createdAt').limit(7).populate('user', 'name'),
+    // Period-scoped sales (respects the dashboard date filter)
+    Sale.aggregate([
+      { $match: { business: bId, createdAt: { $gte: range.from, $lte: range.to } } },
+      { $group: { _id: null, revenue: { $sum: '$total' }, profit: { $sum: '$profit' }, count: { $sum: 1 } } },
+    ]),
+    // Period-scoped expenses
+    Expense.aggregate([
+      { $match: { business: bId, date: { $gte: range.from, $lte: range.to } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]),
+    // Cumulative per-method balances (cash/bank/bkash/nagad/rocket/card)
+    computeBalances(req.businessId),
+    // Period-scoped Service & Repair financials (req 9)
+    ServiceJob.aggregate([
+      { $match: { business: bId, createdAt: { $gte: range.from, $lte: range.to } } },
+      { $group: {
+        _id: null,
+        revenue: { $sum: '$total' },
+        partsCost: { $sum: '$partsCost' },
+        technicianCost: { $sum: '$technicianCost' },
+        profit: { $sum: '$profit' },
+        count: { $sum: 1 },
+      } },
+    ]),
+    // Active EMI plans — summed in JS (uses the `balance` virtual) for EMI Receivable (req 10)
+    Installment.find({ business: bId, status: 'active' }),
   ]);
 
   const monthRevenue = salesAgg[0]?.revenue || 0;
   const monthProfit = salesAgg[0]?.profit || 0;
   const monthExpense = expenseAgg[0]?.total || 0;
   const lowStock = products.filter((p) => p.stock <= p.lowStockAlert);
+
+  const periodRevenue = periodSalesAgg[0]?.revenue || 0;
+  const periodProfit = periodSalesAgg[0]?.profit || 0;
+  const periodExpense = periodExpenseAgg[0]?.total || 0;
 
   ok(res, {
     summary: {
@@ -73,8 +126,30 @@ export const dashboardSummary = asyncHandler(async (req, res) => {
       todaySalesCount: todayAgg[0]?.count || 0,
       totalProducts: products.length,
       lowStockCount: lowStock.length,
-      totalDue: dueAgg[0]?.totalDue || 0,
+      totalDue: dueAgg[0]?.totalDue || 0, // regular sales due only — EMI due is tracked separately below (req 10)
+      emiReceivable: activeEmis.reduce((s, i) => s + i.balance, 0),
+      activeEmiCount: activeEmis.length,
       employeesCount,
+      // ---- period-scoped (dashboard date filter) ----
+      period,
+      periodFrom: range.from,
+      periodTo: range.to,
+      periodRevenue,
+      periodProfit,
+      periodExpense,
+      periodNetProfit: periodProfit - periodExpense,
+      periodSalesCount: periodSalesAgg[0]?.count || 0,
+      // ---- cumulative balances ----
+      balances,
+      cardCollection: balances.card,
+      // ---- Service & Repair (period-scoped, req 9) ----
+      service: {
+        revenue: periodServiceAgg[0]?.revenue || 0,
+        partsCost: periodServiceAgg[0]?.partsCost || 0,
+        technicianCost: periodServiceAgg[0]?.technicianCost || 0,
+        netProfit: periodServiceAgg[0]?.profit || 0,
+        count: periodServiceAgg[0]?.count || 0,
+      },
     },
     lowStockProducts: lowStock.slice(0, 8),
     topProducts,

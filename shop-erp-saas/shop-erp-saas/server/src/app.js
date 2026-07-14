@@ -16,7 +16,8 @@ if (config.nodeEnv === 'production') app.set('trust proxy', 1);
 
 app.use(helmet());
 app.use(cors({ origin: config.clientUrl, credentials: true }));
-app.use(express.json({ limit: '2mb' }));
+// 10mb: large enough for a CSV import or a full JSON data-backup/restore (req 13)
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 if (config.nodeEnv === 'development') app.use(morgan('dev'));
 

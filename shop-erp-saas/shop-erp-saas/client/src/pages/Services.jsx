@@ -17,7 +17,7 @@ const STATUS_BADGE = {
   completed: 'bg-blue-100 text-blue-700',
   delivered: 'bg-green-100 text-green-700',
 };
-const empty = { customerName: '', customerPhone: '', deviceModel: '', imei: '', problem: '', budget: 0, technician: '', serviceFee: 0, partsCost: 0, paid: 0 };
+const empty = { customerName: '', customerPhone: '', deviceModel: '', imei: '', problem: '', budget: 0, technician: '', serviceFee: 0, partsCost: 0, technicianCost: 0, paid: 0, paymentMethod: 'cash' };
 
 export default function Services() {
   const confirm = useConfirm();
@@ -42,7 +42,8 @@ export default function Services() {
     setForm({
       customerName: j.customerName, customerPhone: j.customerPhone || '', deviceModel: j.deviceModel || '',
       imei: j.imei || '', problem: j.problem || '', budget: j.budget || 0, technician: j.technician || '',
-      serviceFee: j.serviceFee || 0, partsCost: j.partsCost || 0, paid: j.paid || 0,
+      serviceFee: j.serviceFee || 0, partsCost: j.partsCost || 0, technicianCost: j.technicianCost || 0,
+      paid: j.paid || 0, paymentMethod: j.paymentMethod || 'cash',
     });
     setEditId(j._id); setModal(true);
   };
@@ -52,7 +53,8 @@ export default function Services() {
     if (!form.deviceModel.trim()) return toast.error('Device model is required');
     const payload = {
       ...form,
-      budget: +form.budget || 0, serviceFee: +form.serviceFee || 0, partsCost: +form.partsCost || 0, paid: +form.paid || 0,
+      budget: +form.budget || 0, serviceFee: +form.serviceFee || 0, partsCost: +form.partsCost || 0,
+      technicianCost: +form.technicianCost || 0, paid: +form.paid || 0,
     };
     try {
       const { data } = editId
@@ -75,7 +77,9 @@ export default function Services() {
   };
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
-  const total = (+form.serviceFee || 0) + (+form.partsCost || 0);
+  // customer bill = service charge only; parts/technician cost are internal (profit calc)
+  const total = +form.serviceFee || 0;
+  const profit = total - (+form.partsCost || 0) - (+form.technicianCost || 0);
 
   return (
     <div className="space-y-4">
@@ -106,6 +110,10 @@ export default function Services() {
           )},
           { key: 'technician', label: 'Technician', render: (r) => r.technician || '—' },
           { key: 'total', label: 'Bill', className: 'text-right', render: (r) => taka(r.total) },
+          { key: 'due', label: 'Due', className: 'text-right', render: (r) => {
+            const due = Math.max(0, (r.total || 0) - (r.paid || 0));
+            return due > 0 ? <span className="text-red-500 font-semibold">{taka(due)}</span> : <span className="text-green-600">Paid</span>;
+          } },
           { key: 'status', label: 'Status', render: (r) => (
             <select className={`badge border-0 ${STATUS_BADGE[r.status]} capitalize cursor-pointer`} value={r.status} onChange={(e) => changeStatus(r, e.target.value)}>
               {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -133,12 +141,29 @@ export default function Services() {
           <div className="col-span-2"><label className="label">Problem / Fault</label><input className="input" value={form.problem} onChange={set('problem')} /></div>
           <div><label className="label">Customer Budget</label><input className="input" type="number" value={form.budget} onChange={set('budget')} /></div>
           <div><label className="label">Technician</label><input className="input" value={form.technician} onChange={set('technician')} /></div>
-          <div><label className="label">Service Fee</label><input className="input" type="number" value={form.serviceFee} onChange={set('serviceFee')} /></div>
-          <div><label className="label">Parts Cost</label><input className="input" type="number" value={form.partsCost} onChange={set('partsCost')} /></div>
+
+          <div className="col-span-2"><label className="label">Service Charge <span className="text-xs text-slate-400 font-normal">(what the customer is billed — shown on their invoice)</span></label><input className="input" type="number" value={form.serviceFee} onChange={set('serviceFee')} /></div>
+
+          <div className="col-span-2 grid grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
+            <p className="col-span-2 text-xs text-slate-500">Internal costs — never shown to the customer, used only to compute your profit.</p>
+            <div><label className="label">Parts Cost</label><input className="input" type="number" value={form.partsCost} onChange={set('partsCost')} /></div>
+            <div><label className="label">Technician Cost</label><input className="input" type="number" value={form.technicianCost} onChange={set('technicianCost')} /></div>
+          </div>
+
           <div><label className="label">Paid</label><input className="input" type="number" value={form.paid} onChange={set('paid')} /></div>
+          <div><label className="label">Payment Method</label>
+            <select className="input" value={form.paymentMethod} onChange={set('paymentMethod')}>
+              <option value="cash">Cash</option><option value="bank">Bank</option><option value="bkash">bKash</option>
+              <option value="nagad">Nagad</option><option value="rocket">Rocket</option><option value="card">Card</option>
+            </select>
+          </div>
           <div className="flex flex-col justify-end">
-            <span className="label">Total Bill</span>
+            <span className="label">Customer Total Bill</span>
             <div className="input bg-slate-50 dark:bg-slate-800 flex items-center font-semibold">{taka(total)}</div>
+          </div>
+          <div className="flex flex-col justify-end">
+            <span className="label">Your Profit (internal)</span>
+            <div className={`input bg-slate-50 dark:bg-slate-800 flex items-center font-semibold ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>{taka(profit)}</div>
           </div>
         </div>
       </Modal>

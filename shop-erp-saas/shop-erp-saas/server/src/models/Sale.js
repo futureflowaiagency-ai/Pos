@@ -20,6 +20,8 @@ const saleItemSchema = new mongoose.Schema(
     warrantyShopMonths: { type: Number, default: 0 },
     warrantyBrandExpiry: { type: Date, default: null },
     warrantyShopExpiry: { type: Date, default: null },
+    // how much of this line has already been returned (req 14) — prevents over-return
+    returnedQty: { type: Number, default: 0 },
   },
   { _id: false }
 );
@@ -38,8 +40,15 @@ const saleSchema = new mongoose.Schema(
     paid: { type: Number, default: 0 },
     due: { type: Number, default: 0 },
     profit: { type: Number, default: 0 },
-    paymentMethod: { type: String, enum: ['cash', 'bkash', 'nagad', 'card', 'due', 'emi'], default: 'cash' },
+    // classification / badge: becomes 'due' when any due remains (drives the DUE badge)
+    // 'bank' & 'rocket' added; 'emi' kept for back-compat (EMI-created sales) but not selectable in POS
+    paymentMethod: { type: String, enum: ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card', 'due', 'emi'], default: 'cash' },
+    // actual tender used for the PAID portion (kept even when paymentMethod is 'due')
+    // — this is what the dashboard balance engine attributes money-in to.
+    paidVia: { type: String, enum: ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'], default: 'cash' },
     soldBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    // true once every line item has been fully returned (req 14)
+    returned: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

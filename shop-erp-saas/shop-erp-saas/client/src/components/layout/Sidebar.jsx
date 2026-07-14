@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Package, ShoppingCart, Users, UserCog,
   Wallet, CreditCard, Settings, ScrollText, ShieldCheck, X,
-  Truck, ShieldQuestion, CalendarClock, Wrench, Megaphone, Contact2,
+  Truck, ShieldQuestion, CalendarClock, Wrench, Megaphone, Contact2, Undo2, FileSpreadsheet,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useLang } from '../../context/LanguageContext.jsx';
@@ -16,6 +16,8 @@ const baseLinks = [
   { to: '/suppliers', label: 'Suppliers', icon: Truck },
   { to: '/employees', label: 'Employees', icon: UserCog },
   { to: '/finance', label: 'Finance', icon: Wallet },
+  { to: '/returns', label: 'Returns & Exchange', icon: Undo2 },
+  { to: '/import-export', label: 'Import / Export', icon: FileSpreadsheet },
   { to: '/marketing', label: 'Marketing', icon: Megaphone },
   { to: '/crm', label: 'CRM', icon: Contact2 },
   { to: '/subscription', label: 'Subscription', icon: CreditCard },

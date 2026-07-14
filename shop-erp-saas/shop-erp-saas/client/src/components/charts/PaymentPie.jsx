@@ -5,8 +5,10 @@ import { taka } from '../../utils/format.js';
 // Brand-ish colours per payment method.
 const COLORS = {
   cash: '#16a34a',
+  bank: '#0d9488',
   bkash: '#db2777',
   nagad: '#ea580c',
+  rocket: '#7c3aed',
   card: '#4f46e5',
   due: '#ef4444',
   emi: '#0891b2',

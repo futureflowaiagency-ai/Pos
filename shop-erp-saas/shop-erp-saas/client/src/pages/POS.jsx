@@ -374,9 +374,9 @@ export default function POS() {
           <div>
             <label className="label">Payment Method</label>
             <select className="input" value={method} onChange={(e) => setMethod(e.target.value)}>
-              <option value="cash">Cash</option><option value="bkash">bKash</option>
-              <option value="nagad">Nagad</option><option value="card">Card</option>
-              {isMobile && <option value="emi">EMI / Installment</option>}
+              <option value="cash">Cash</option><option value="bank">Bank</option>
+              <option value="bkash">bKash</option><option value="nagad">Nagad</option>
+              <option value="rocket">Rocket</option><option value="card">Card</option>
             </select>
           </div>
           <div className="flex justify-between"><span>Subtotal</span><span>{taka(subTotal)}</span></div>

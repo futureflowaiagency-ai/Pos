@@ -1,14 +1,20 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Search, Wallet, PackagePlus, ScrollText, Printer } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Wallet, PackagePlus, ScrollText, Printer, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios.js';
 import DataTable from '../components/ui/DataTable.jsx';
 import Modal from '../components/ui/Modal.jsx';
+import StatCard from '../components/ui/StatCard.jsx';
 import PrintWrapper from '../components/print/PrintWrapper.jsx';
 import PurchaseReceipt from '../components/print/PurchaseReceipt.jsx';
 import { taka, fmtDateTime } from '../utils/format.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useConfirm } from '../context/ConfirmContext.jsx';
+
+const TENDER_OPTIONS = [
+  { value: 'cash', label: 'Cash' }, { value: 'bank', label: 'Bank' }, { value: 'bkash', label: 'bKash' },
+  { value: 'nagad', label: 'Nagad' }, { value: 'rocket', label: 'Rocket' }, { value: 'card', label: 'Card' },
+];
 
 const empty = { name: '', phone: '', address: '', note: '' };
 const due = (s) => Math.max(0, (s.totalPurchase || 0) - (s.totalPaid || 0));
@@ -17,6 +23,7 @@ export default function Suppliers() {
   const confirm = useConfirm();
   const { business } = useAuth();
   const [suppliers, setSuppliers] = useState([]);
+  const [dash, setDash] = useState(null); // { totals, topDue, recentPurchases, supplierCount }
   // purchase report to print/reprint: { purchase, supplier }
   const [printPurchase, setPrintPurchase] = useState(null);
   const [search, setSearch] = useState('');
@@ -33,7 +40,13 @@ export default function Suppliers() {
     const { data } = await api.get('/suppliers', { params: { search } });
     setSuppliers(data.data.suppliers);
   };
+  const loadDashboard = async () => {
+    const { data } = await api.get('/suppliers/dashboard/summary');
+    setDash(data.data);
+  };
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [search]);
+  useEffect(() => { loadDashboard(); }, []);
+  const refreshAll = () => { load(); loadDashboard(); };
 
   const openNew = () => { setForm(empty); setEditId(null); setModal(true); };
   const openEdit = (s) => { setForm({ name: s.name, phone: s.phone || '', address: s.address || '', note: s.note || '' }); setEditId(s._id); setModal(true); };
@@ -61,6 +74,45 @@ export default function Suppliers() {
         <h1 className="text-2xl font-bold">Suppliers</h1>
         <button className="btn-primary" onClick={openNew}><Plus size={18} /> Add Supplier</button>
       </div>
+
+      {/* Supplier Dashboard — aggregate totals + top-due + recent purchases (req 12) */}
+      {dash && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <StatCard icon={TrendingUp} label="Total Purchase" value={taka(dash.totals.totalPurchase)} sub={`${dash.supplierCount} supplier(s)`} accent="brand" />
+            <StatCard icon={TrendingDown} label="Total Paid" value={taka(dash.totals.totalPaid)} accent="green" />
+            <StatCard icon={AlertTriangle} label="Total Due" value={taka(dash.totals.totalDue)} accent="red" />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="card p-4">
+              <h3 className="font-semibold mb-3">Top Suppliers by Due</h3>
+              <DataTable
+                columns={[
+                  { key: 'name', label: 'Supplier' },
+                  { key: 'phone', label: 'Phone', render: (r) => r.phone || '—' },
+                  { key: 'due', label: 'Due', className: 'text-right', render: (r) => <span className="text-red-500 font-semibold">{taka(r.due)}</span> },
+                ]}
+                rows={dash.topDue}
+                empty="No outstanding dues"
+              />
+            </div>
+            <div className="card p-4">
+              <h3 className="font-semibold mb-3">Recent Purchases</h3>
+              <DataTable
+                columns={[
+                  { key: 'supplier', label: 'Supplier', render: (r) => r.supplier?.name || '—' },
+                  { key: 'createdAt', label: 'Date', render: (r) => fmtDateTime(r.createdAt) },
+                  { key: 'total', label: 'Total', className: 'text-right', render: (r) => taka(r.total) },
+                  { key: 'due', label: 'Due', className: 'text-right', render: (r) => (r.due > 0 ? <span className="text-red-500">{taka(r.due)}</span> : <span className="text-green-600">Paid</span>) },
+                ]}
+                rows={dash.recentPurchases}
+                empty="No purchases yet"
+              />
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="relative max-w-sm">
         <Search size={18} className="absolute left-3 top-2.5 text-slate-400" />
@@ -101,8 +153,8 @@ export default function Suppliers() {
         </div>
       </Modal>
 
-      {purchaseFor && <PurchaseModal supplier={purchaseFor} onClose={() => setPurchaseFor(null)} onDone={load} onPrint={setPrintPurchase} />}
-      {payFor && <PayModal supplier={payFor} onClose={() => setPayFor(null)} onDone={load} />}
+      {purchaseFor && <PurchaseModal supplier={purchaseFor} onClose={() => setPurchaseFor(null)} onDone={refreshAll} onPrint={setPrintPurchase} />}
+      {payFor && <PayModal supplier={payFor} onClose={() => setPayFor(null)} onDone={refreshAll} />}
       {ledgerFor && <LedgerModal supplier={ledgerFor} onClose={() => setLedgerFor(null)} onPrint={setPrintPurchase} />}
 
       {/* Purchase report print / reprint */}
@@ -118,6 +170,7 @@ function PurchaseModal({ supplier, onClose, onDone, onPrint }) {
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
   const [paid, setPaid] = useState(0);
+  const [source, setSource] = useState('cash');
   const [saving, setSaving] = useState(false);
 
   const total = items.reduce((s, it) => s + Number(it.unitCost || 0) * Number(it.qty || 0), 0);
@@ -130,7 +183,7 @@ function PurchaseModal({ supplier, onClose, onDone, onPrint }) {
     if (!clean.length) return toast.error('Add at least one item');
     setSaving(true);
     try {
-      const { data } = await api.post(`/suppliers/${supplier._id}/purchase`, { items: clean, reference, note, paid: Number(paid || 0) });
+      const { data } = await api.post(`/suppliers/${supplier._id}/purchase`, { items: clean, reference, note, paid: Number(paid || 0), source });
       toast.success('Purchase recorded'); onDone(); onClose();
       onPrint?.({ purchase: data.data.purchase, supplier: data.data.supplier || supplier });
     } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
@@ -160,7 +213,12 @@ function PurchaseModal({ supplier, onClose, onDone, onPrint }) {
       <div className="border-t border-slate-200 dark:border-slate-700 mt-3 pt-3 grid grid-cols-2 gap-3">
         <div className="flex items-center justify-between col-span-2 font-semibold"><span>Total</span><span>{taka(total)}</span></div>
         <div><label className="label">Paid now</label><input className="input" type="number" value={paid} onChange={(e) => setPaid(e.target.value)} placeholder="0" /></div>
-        <div className="flex flex-col justify-end">
+        <div><label className="label">Paid From</label>
+          <select className="input" value={source} onChange={(e) => setSource(e.target.value)}>
+            {TENDER_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
+        <div className="col-span-2 flex flex-col justify-end">
           <span className="label">Due added</span>
           <div className="input bg-slate-50 dark:bg-slate-800 flex items-center font-semibold text-red-500">{taka(Math.max(0, total - Number(paid || 0)))}</div>
         </div>
@@ -173,6 +231,7 @@ function PayModal({ supplier, onClose, onDone }) {
   const confirm = useConfirm();
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const [source, setSource] = useState('cash');
   const [saving, setSaving] = useState(false);
   const due = Math.max(0, (supplier.totalPurchase || 0) - (supplier.totalPaid || 0));
 
@@ -188,7 +247,7 @@ function PayModal({ supplier, onClose, onDone }) {
     if (!ok) return;
     setSaving(true);
     try {
-      await api.post(`/suppliers/${supplier._id}/pay`, { amount: Number(amount), note });
+      await api.post(`/suppliers/${supplier._id}/pay`, { amount: Number(amount), note, source });
       toast.success('Payment recorded'); onDone(); onClose();
     } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
     setSaving(false);
@@ -199,7 +258,14 @@ function PayModal({ supplier, onClose, onDone }) {
       footer={<><button className="btn-ghost" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={saving} onClick={submit}>Record Payment</button></>}>
       <p className="text-sm mb-3">Current due: <strong className="text-red-500">{taka(due)}</strong></p>
       <div className="space-y-3">
-        <div><label className="label">Amount</label><input className="input" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="label">Amount</label><input className="input" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>
+          <div><label className="label">Pay From</label>
+            <select className="input" value={source} onChange={(e) => setSource(e.target.value)}>
+              {TENDER_OPTIONS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
+        </div>
         <div><label className="label">Note</label><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></div>
       </div>
     </Modal>

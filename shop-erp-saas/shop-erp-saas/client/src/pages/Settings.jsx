@@ -45,6 +45,7 @@ export default function Settings() {
         settings: {
           lowStockThreshold: business.settings?.lowStockThreshold ?? 5,
           printMode: business.settings?.printMode || 'a4',
+          returnWindowDays: business.settings?.returnWindowDays ?? 7,
         },
       });
     }
@@ -55,7 +56,7 @@ export default function Settings() {
   const save = async () => {
     setSaving(true);
     try {
-      await api.put('/business', { ...form, settings: { ...form.settings, lowStockThreshold: +form.settings.lowStockThreshold } });
+      await api.put('/business', { ...form, settings: { ...form.settings, lowStockThreshold: +form.settings.lowStockThreshold, returnWindowDays: +form.settings.returnWindowDays } });
       await refresh();
       toast.success('Settings saved');
     } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
@@ -122,6 +123,15 @@ export default function Settings() {
         <h3 className="font-semibold">Preferences</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div><label className="label">Low Stock Threshold</label><input className="input" type="number" value={form.settings.lowStockThreshold} onChange={(e) => setS('lowStockThreshold', e.target.value)} /></div>
+          <div>
+            <label className="label">Return / Exchange Window</label>
+            <select className="input" value={form.settings.returnWindowDays} onChange={(e) => setS('returnWindowDays', e.target.value)}>
+              <option value={3}>3 days</option>
+              <option value={7}>7 days</option>
+              <option value={30}>30 days</option>
+            </select>
+            <p className="text-xs text-slate-400 mt-1">After this window, only the shop owner can process a return/exchange.</p>
+          </div>
         </div>
         <div className="flex items-center justify-between pt-2">
           <span className="label !mb-0">Theme</span>

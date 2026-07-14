@@ -1,6 +1,6 @@
 import { taka, fmtDateTime } from '../../utils/format.js';
 
-export default function DueReceipt({ customer, amount, business }) {
+export default function DueReceipt({ customer, amount, method, business }) {
   if (!customer) return null;
   return (
     <div className="print-thermal">
@@ -16,6 +16,11 @@ export default function DueReceipt({ customer, amount, business }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
         <span>Paid Now</span><span>{taka(amount)}</span>
       </div>
+      {method ? (
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>Method</span><span>{String(method).toUpperCase()}</span>
+        </div>
+      ) : null}
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         <span>Remaining Due</span><span>{taka(customer.totalDue)}</span>
       </div>

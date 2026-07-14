@@ -7,6 +7,8 @@ import { logActivity } from '../middleware/activityLogger.js';
 import Supplier from '../models/Supplier.js';
 import Purchase from '../models/Purchase.js';
 
+const TENDERS = ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'];
+
 // @route GET /api/suppliers?search=
 export const getSuppliers = asyncHandler(async (req, res) => {
   const { search } = req.query;
@@ -52,9 +54,9 @@ export const supplierLedger = asyncHandler(async (req, res) => {
 });
 
 // @route POST /api/suppliers/:id/purchase
-// body: { items:[{name, qty, unitCost}], reference, note, paid }
+// body: { items:[{name, qty, unitCost}], reference, note, paid, source }
 export const recordPurchase = asyncHandler(async (req, res) => {
-  const { items = [], reference = '', note = '', paid = 0 } = req.body;
+  const { items = [], reference = '', note = '', paid = 0, source = 'cash' } = req.body;
   const supplier = await Supplier.findOne(tenantFilter(req, { _id: req.params.id }));
   if (!supplier) throw new ApiError(404, 'Supplier not found');
 
@@ -71,6 +73,7 @@ export const recordPurchase = asyncHandler(async (req, res) => {
     total,
     paid: paidAmt,
     due: Math.max(0, total - paidAmt),
+    source: TENDERS.includes(source) ? source : 'cash',
     createdBy: req.user._id,
   });
 
@@ -82,9 +85,9 @@ export const recordPurchase = asyncHandler(async (req, res) => {
   created(res, { purchase, supplier });
 });
 
-// @route POST /api/suppliers/:id/pay  body: { amount, note }
+// @route POST /api/suppliers/:id/pay  body: { amount, note, source }
 export const paySupplier = asyncHandler(async (req, res) => {
-  const { amount, note = '' } = req.body;
+  const { amount, note = '', source = 'cash' } = req.body;
   const amt = Number(amount || 0);
   if (amt <= 0) throw new ApiError(400, 'Payment amount must be greater than 0');
   const supplier = await Supplier.findOne(tenantFilter(req, { _id: req.params.id }));
@@ -99,6 +102,7 @@ export const paySupplier = asyncHandler(async (req, res) => {
     total: 0,
     paid: amt,
     due: 0,
+    source: TENDERS.includes(source) ? source : 'cash',
     createdBy: req.user._id,
   });
 
@@ -107,4 +111,26 @@ export const paySupplier = asyncHandler(async (req, res) => {
 
   await logActivity(req, { action: 'PAY_SUPPLIER', entity: 'Supplier', entityId: supplier._id, meta: { amount: amt } });
   ok(res, { payment, supplier }, 'Payment recorded');
+});
+
+// @route GET /api/suppliers/dashboard/summary — aggregate supplier financials (req 12)
+export const supplierDashboard = asyncHandler(async (req, res) => {
+  const suppliers = await Supplier.find(tenantFilter(req, { isActive: true }));
+  const totals = suppliers.reduce((acc, s) => {
+    acc.totalPurchase += s.totalPurchase || 0;
+    acc.totalPaid += s.totalPaid || 0;
+    return acc;
+  }, { totalPurchase: 0, totalPaid: 0 });
+  totals.totalDue = Math.max(0, totals.totalPurchase - totals.totalPaid);
+
+  const topDue = suppliers
+    .map((s) => ({ _id: s._id, name: s.name, phone: s.phone, due: s.due }))
+    .filter((s) => s.due > 0)
+    .sort((a, b) => b.due - a.due)
+    .slice(0, 8);
+
+  const recentPurchases = await Purchase.find(tenantFilter(req, { kind: 'purchase' }))
+    .sort('-createdAt').limit(8).populate('supplier', 'name');
+
+  ok(res, { totals, topDue, recentPurchases, supplierCount: suppliers.length });
 });

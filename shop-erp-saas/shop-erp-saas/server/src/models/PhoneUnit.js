@@ -10,9 +10,11 @@ const phoneUnitSchema = new mongoose.Schema(
     imei1: { type: String, trim: true, default: '' },
     imei2: { type: String, trim: true, default: '' },
     serial: { type: String, trim: true, default: '' },
-    status: { type: String, enum: ['in_stock', 'sold'], default: 'in_stock', index: true },
+    // 'damaged' = returned but not resellable (service/damaged stock, req 14)
+    status: { type: String, enum: ['in_stock', 'sold', 'damaged'], default: 'in_stock', index: true },
     // sale linkage + warranty (filled in when sold)
     sale: { type: mongoose.Schema.Types.ObjectId, ref: 'Sale', default: null },
+    installment: { type: mongoose.Schema.Types.ObjectId, ref: 'Installment', default: null }, // if sold via EMI instead
     soldAt: { type: Date, default: null },
     soldPrice: { type: Number, default: 0 },
     customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', default: null },

@@ -148,7 +148,7 @@ export default function Employees() {
     catch (e) { toast.error(e.response?.data?.message || 'Error'); }
   };
 
-  const openSalary = (emp) => { setSalaryModal(emp); setSalaryForm({ month: thisMonth, amount: emp.monthlySalary, status: 'paid' }); };
+  const openSalary = (emp) => { setSalaryModal(emp); setSalaryForm({ month: thisMonth, amount: emp.monthlySalary, status: 'paid', source: 'cash' }); };
   const paySalary = async () => {
     const { data } = await api.post(`/employees/${salaryModal._id}/salary`, { ...salaryForm, amount: +salaryForm.amount });
     toast.success('Salary recorded');
@@ -311,11 +311,20 @@ export default function Employees() {
         <div className="space-y-3">
           <div><label className="label">Month</label><input className="input" type="month" value={salaryForm.month} onChange={(e) => setSalaryForm({ ...salaryForm, month: e.target.value })} /></div>
           <div><label className="label">Amount</label><input className="input" type="number" value={salaryForm.amount} onChange={(e) => setSalaryForm({ ...salaryForm, amount: e.target.value })} /></div>
-          <div><label className="label">Status</label>
-            <select className="input" value={salaryForm.status} onChange={(e) => setSalaryForm({ ...salaryForm, status: e.target.value })}>
-              <option value="paid">Paid</option><option value="due">Due</option>
-            </select>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label">Status</label>
+              <select className="input" value={salaryForm.status} onChange={(e) => setSalaryForm({ ...salaryForm, status: e.target.value })}>
+                <option value="paid">Paid</option><option value="due">Due</option>
+              </select>
+            </div>
+            <div><label className="label">Paid From</label>
+              <select className="input" value={salaryForm.source} onChange={(e) => setSalaryForm({ ...salaryForm, source: e.target.value })} disabled={salaryForm.status !== 'paid'}>
+                <option value="cash">Cash</option><option value="bank">Bank</option><option value="bkash">bKash</option>
+                <option value="nagad">Nagad</option><option value="rocket">Rocket</option><option value="card">Card</option>
+              </select>
+            </div>
           </div>
+          <p className="text-xs text-slate-400">Paid salary is recorded as an expense (category “Salary”).</p>
         </div>
       </Modal>
 

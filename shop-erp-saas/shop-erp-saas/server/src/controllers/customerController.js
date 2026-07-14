@@ -5,6 +5,9 @@ import { tenantFilter } from '../middleware/tenant.js';
 import { logActivity } from '../middleware/activityLogger.js';
 import Customer from '../models/Customer.js';
 import Sale from '../models/Sale.js';
+import DuePayment from '../models/DuePayment.js';
+
+const TENDERS = ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'];
 
 export const getCustomers = asyncHandler(async (req, res) => {
   const { search } = req.query;
@@ -32,21 +35,51 @@ export const deleteCustomer = asyncHandler(async (req, res) => {
   ok(res, {}, 'Customer deleted');
 });
 
-// purchase history + due
+// purchase history + due + due-payment history
 export const customerHistory = asyncHandler(async (req, res) => {
   const customer = await Customer.findOne(tenantFilter(req, { _id: req.params.id }));
   if (!customer) throw new ApiError(404, 'Customer not found');
-  const sales = await Sale.find(tenantFilter(req, { customer: customer._id })).sort('-createdAt');
-  ok(res, { customer, sales });
+  const [sales, duePayments] = await Promise.all([
+    Sale.find(tenantFilter(req, { customer: customer._id })).sort('-createdAt'),
+    DuePayment.find(tenantFilter(req, { customer: customer._id })).sort('-date'),
+  ]);
+  ok(res, { customer, sales, duePayments });
 });
 
-// record a due payment (customer pays back)
+// record a due payment (customer pays back). Allocates across the customer's
+// unpaid invoices oldest-first so each Sale.due updates in real time (req 4),
+// records a DuePayment (history + balance by method), and returns receipt data.
 export const collectDue = asyncHandler(async (req, res) => {
-  const { amount } = req.body;
+  const { amount, method = 'cash' } = req.body;
+  const amt = Number(amount || 0);
+  if (amt <= 0) throw new ApiError(400, 'Enter a valid amount');
+  const m = TENDERS.includes(method) ? method : 'cash';
+
   const customer = await Customer.findOne(tenantFilter(req, { _id: req.params.id }));
   if (!customer) throw new ApiError(404, 'Customer not found');
-  customer.totalDue = Math.max(0, customer.totalDue - Number(amount || 0));
+
+  const previousDue = customer.totalDue;
+  const pay = Math.min(amt, customer.totalDue);
+
+  // spread the payment across unpaid invoices, oldest first
+  let remaining = pay;
+  const dueSales = await Sale.find(tenantFilter(req, { customer: customer._id, due: { $gt: 0 } })).sort('createdAt');
+  for (const s of dueSales) {
+    if (remaining <= 0) break;
+    const take = Math.min(remaining, s.due);
+    s.due = Math.max(0, s.due - take);
+    if (s.due === 0) s.paymentMethod = m; // settled → DUE badge clears
+    await s.save();
+    remaining -= take;
+  }
+
+  customer.totalDue = Math.max(0, customer.totalDue - pay);
   await customer.save();
-  await logActivity(req, { action: 'COLLECT_DUE', entity: 'Customer', entityId: customer._id, meta: { amount } });
-  ok(res, { customer }, 'Due collected');
+
+  const duePayment = await DuePayment.create({
+    business: req.businessId, customer: customer._id, sale: null,
+    amount: pay, method: m, previousDue, remainingDue: customer.totalDue, collectedBy: req.user._id,
+  });
+  await logActivity(req, { action: 'COLLECT_DUE', entity: 'Customer', entityId: customer._id, meta: { amount: pay, method: m } });
+  ok(res, { customer, duePayment }, 'Due collected');
 });

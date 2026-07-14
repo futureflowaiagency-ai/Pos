@@ -1,0 +1,11 @@
+import { Router } from 'express';
+import { createReturn, createExchange, getReturns, getReturn } from '../controllers/returnController.js';
+import { protect } from '../middleware/auth.js';
+import { requireBusiness } from '../middleware/tenant.js';
+
+const router = Router();
+router.use(protect, requireBusiness);
+router.route('/').get(getReturns).post(createReturn);
+router.post('/exchange', createExchange);
+router.get('/:id', getReturn);
+export default router;

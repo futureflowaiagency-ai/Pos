@@ -4,8 +4,11 @@ const productSchema = new mongoose.Schema(
   {
     business: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
     name: { type: String, required: true, trim: true },
-    imageUrl: { type: String, default: '' }, // product photo (stored on Cloudinary)
+    imageUrl: { type: String, default: '' }, // legacy product photo (UI removed; kept for back-compat)
     sku: { type: String, trim: true },
+    // unique (per business) product barcode — auto-generated if blank. Used for
+    // scan-to-add (dedupes products, only adds a new IMEI) and label printing.
+    barcode: { type: String, trim: true, default: '', index: true },
     category: { type: String, trim: true, default: 'General' },
     unit: { type: String, default: 'pcs' },
     purchasePrice: { type: Number, required: true, default: 0 },
@@ -27,6 +30,8 @@ const productSchema = new mongoose.Schema(
     // warranty in months — brand warranty and the shop's own service warranty
     warrantyBrandMonths: { type: Number, default: 0 },
     warrantyShopMonths: { type: Number, default: 0 },
+    // admin can mark specific products ineligible for return/exchange (req 14)
+    returnable: { type: Boolean, default: true },
     isActive: { type: Boolean, default: true },
   },
   { timestamps: true }

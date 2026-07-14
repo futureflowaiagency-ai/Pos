@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Search, AlertTriangle, Barcode, Upload, X, ImageIcon } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, AlertTriangle, Barcode, ScanLine, Tag } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios.js';
-import { uploadImage } from '../api/upload.js';
 import DataTable from '../components/ui/DataTable.jsx';
 import Modal from '../components/ui/Modal.jsx';
+import LabelPrintModal from '../components/print/LabelPrintModal.jsx';
 import { taka, fmtDate, expiryStatus, daysUntil } from '../utils/format.js';
 import { useConfirm } from '../context/ConfirmContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const empty = {
-  name: '', imageUrl: '', category: 'General', unit: 'pcs', purchasePrice: 0, sellingPrice: 0,
-  discountPercent: 0, stock: 0, lowStockAlert: 5, expiryDate: '', batchNo: '',
+  name: '', sku: '', category: 'General', unit: 'pcs', purchasePrice: 0, sellingPrice: 0,
+  discountPercent: 0, stock: 0, lowStockAlert: 5, expiryDate: '', batchNo: '', returnable: true,
   // mobile-shop fields
   trackSerial: false, brand: '', color: '', storage: '', warrantyBrandMonths: 0, warrantyShopMonths: 0,
 };
@@ -30,12 +30,38 @@ export default function Products() {
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
   const [unitsFor, setUnitsFor] = useState(null); // product whose IMEIs are being managed
+  const [labelFor, setLabelFor] = useState(null); // product whose barcode labels are being printed
+  const [scanCode, setScanCode] = useState('');
 
   const load = async () => {
     const { data } = await api.get('/products', { params: { search } });
     setProducts(data.data.products);
   };
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [search]);
+
+  // Scan/enter a barcode: if it matches an existing product, don't create a new
+  // one — for IMEI-tracked products jump straight to adding a new device (req 1),
+  // otherwise open the product for a stock edit.
+  const onScan = async () => {
+    const code = scanCode.trim();
+    if (!code) return;
+    try {
+      const { data } = await api.get(`/products/barcode/${encodeURIComponent(code)}`);
+      const p = data.data.product;
+      setScanCode('');
+      if (p.trackSerial) { setUnitsFor(p); toast.success(`${p.name} — add a new IMEI/serial`); }
+      else { openEdit(p); toast.success(`${p.name} found`); }
+    } catch (e) {
+      if (e.response?.status === 404) {
+        // unknown barcode → start a new product prefilled with this barcode
+        setForm({ ...empty, category: isMobile ? 'Mobile' : (business?.type === 'pharmacy' ? 'Medicine' : 'General'), trackSerial: isMobile, barcode: code });
+        setEditId(null); setModal(true); setScanCode('');
+        toast('New barcode — create the product', { icon: '🆕' });
+      } else {
+        toast.error(e.response?.data?.message || 'Lookup failed');
+      }
+    }
+  };
 
   const openNew = () => {
     setForm({ ...empty, category: isMobile ? 'Mobile' : (business?.type === 'pharmacy' ? 'Medicine' : 'General'), trackSerial: isMobile });
@@ -80,22 +106,6 @@ export default function Products() {
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const setChk = (k) => (e) => setForm({ ...form, [k]: e.target.checked });
 
-  const onImage = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    if (!file.type.startsWith('image/')) return toast.error('Please choose an image file');
-    if (file.size > 3 * 1024 * 1024) return toast.error('Image too large (max 3MB)');
-    const t = toast.loading('Uploading image...');
-    try {
-      const url = await uploadImage(file, 'product'); // stored on Cloudinary
-      setForm((f) => ({ ...f, imageUrl: url }));
-      toast.success('Image uploaded', { id: t });
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Upload failed', { id: t });
-    }
-  };
-
   const ExpiryCell = ({ p }) => {
     const st = expiryStatus(p.expiryDate);
     if (!p.expiryDate) return <span className="text-slate-400">—</span>;
@@ -111,11 +121,6 @@ export default function Products() {
   const variantLabel = (p) => [p.brand, p.storage, p.color].filter(Boolean).join(' – ');
 
   const columns = [
-    { key: 'imageUrl', label: '', render: (r) => (
-      r.imageUrl
-        ? <img src={r.imageUrl} alt={r.name} className="w-10 h-10 rounded-lg object-cover border border-slate-200 dark:border-slate-700" />
-        : <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400"><ImageIcon size={16} /></div>
-    )},
     { key: 'name', label: 'Name', render: (r) => (
       <div>
         <span className="font-medium">{r.name}</span>
@@ -140,6 +145,7 @@ export default function Products() {
     )},
     { key: 'actions', label: '', className: 'text-right', render: (r) => (
       <div className="flex justify-end gap-2">
+        <button onClick={() => setLabelFor(r)} className="btn-ghost p-1.5" title="Print barcode label"><Tag size={15} /></button>
         {isMobile && r.trackSerial && (
           <button onClick={() => setUnitsFor(r)} className="btn-ghost p-1.5" title="Manage IMEIs"><Barcode size={15} /></button>
         )}
@@ -156,34 +162,38 @@ export default function Products() {
         <button className="btn-primary" onClick={openNew}><Plus size={18} /> Add Product</button>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search size={18} className="absolute left-3 top-2.5 text-slate-400" />
-        <input className="input pl-10" placeholder="Search products..." value={search} onChange={(e) => setSearch(e.target.value)} />
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search size={18} className="absolute left-3 top-2.5 text-slate-400" />
+          <input className="input pl-10" placeholder="Search name / SKU / barcode..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <div className="relative flex-1 max-w-sm">
+          <ScanLine size={18} className="absolute left-3 top-2.5 text-brand-500" />
+          <input
+            className="input pl-10"
+            placeholder="Scan barcode to add stock / IMEI..."
+            value={scanCode}
+            onChange={(e) => setScanCode(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') onScan(); }}
+          />
+        </div>
       </div>
 
       <DataTable columns={columns} rows={products} />
 
       <Modal open={modal} onClose={() => setModal(false)} title={editId ? 'Edit Product' : 'Add Product'} size="lg"
-        footer={<><button className="btn-ghost" onClick={() => setModal(false)}>Cancel</button><button className="btn-primary" onClick={save}>Save</button></>}>
+        footer={<>
+          {editId && form.barcode && <button className="btn-ghost mr-auto" onClick={() => setLabelFor(form)}><Tag size={16} /> Print Label</button>}
+          <button className="btn-ghost" onClick={() => setModal(false)}>Cancel</button>
+          <button className="btn-primary" onClick={save}>Save</button>
+        </>}>
         <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2">
-            <label className="label">Product Image</label>
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-lg border border-slate-300 dark:border-slate-600 flex items-center justify-center overflow-hidden bg-slate-50 dark:bg-slate-900 shrink-0">
-                {form.imageUrl
-                  ? <img src={form.imageUrl} alt="Product" className="w-full h-full object-cover" />
-                  : <ImageIcon size={20} className="text-slate-400" />}
-              </div>
-              <div className="flex gap-2">
-                <label className="btn-ghost cursor-pointer">
-                  <Upload size={16} /> {form.imageUrl ? 'Change' : 'Upload'}
-                  <input type="file" accept="image/*" className="hidden" onChange={onImage} />
-                </label>
-                {form.imageUrl && <button type="button" className="btn-ghost text-red-500" onClick={() => setForm({ ...form, imageUrl: '' })}><X size={16} /> Remove</button>}
-              </div>
-            </div>
-          </div>
           <div className="col-span-2"><label className="label">Name</label><input className="input" value={form.name} onChange={set('name')} placeholder={isMobile ? 'e.g. iPhone 15 Pro' : ''} /></div>
+          <div>
+            <label className="label">Barcode</label>
+            <input className="input font-mono" value={form.barcode || ''} onChange={set('barcode')} placeholder="Auto-generated on save" />
+          </div>
+          <div><label className="label">SKU / Product Code</label><input className="input" value={form.sku || ''} onChange={set('sku')} placeholder="Optional" /></div>
           <div><label className="label">Category</label><input className="input" value={form.category} onChange={set('category')} /></div>
           <div><label className="label">Unit</label><input className="input" value={form.unit} onChange={set('unit')} /></div>
 
@@ -222,6 +232,12 @@ export default function Products() {
             <div><label className="label">Stock</label><input className="input" type="number" value={form.stock} onChange={set('stock')} /></div>
           )}
           <div><label className="label">Low Stock Alert</label><input className="input" type="number" value={form.lowStockAlert} onChange={set('lowStockAlert')} /></div>
+          <div className="flex items-end">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={form.returnable !== false} onChange={setChk('returnable')} />
+              Eligible for Return / Exchange
+            </label>
+          </div>
 
           {!isMobile && (
             <>
@@ -239,6 +255,7 @@ export default function Products() {
       </Modal>
 
       {unitsFor && <UnitsModal product={unitsFor} onClose={() => setUnitsFor(null)} onChanged={load} />}
+      {labelFor && <LabelPrintModal product={labelFor} business={business} onClose={() => setLabelFor(null)} />}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { taka, fmtDateTime } from '../../utils/format.js';
 // 80mm thermal roll receipt — service / repair job sheet
 export default function ServiceThermal({ job, business }) {
   if (!job) return null;
-  const total = job.total ?? ((job.serviceFee || 0) + (job.partsCost || 0));
+  const total = job.total ?? (job.serviceFee || 0); // customer bill = service charge only
   const due = Math.max(0, total - (job.paid || 0));
   return (
     <div className="print-thermal">
@@ -29,10 +29,7 @@ export default function ServiceThermal({ job, business }) {
       <div>Status: <span style={{ textTransform: 'capitalize' }}>{job.status}</span></div>
       <div className="thermal-divider" />
 
-      <Line l="Service Fee" r={taka(job.serviceFee || 0)} />
-      <Line l="Parts Cost" r={taka(job.partsCost || 0)} />
-      <div className="thermal-divider" />
-      <Line l="TOTAL" r={taka(total)} bold />
+      <Line l="Service Charge" r={taka(total)} bold />
       <Line l="Paid" r={taka(job.paid || 0)} />
       <Line l="Due" r={taka(due)} />
       <div className="thermal-divider" />
