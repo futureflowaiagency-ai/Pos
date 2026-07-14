@@ -124,14 +124,29 @@ export default function POS() {
     });
   };
 
+  // Universal scan-to-cart: works for a device IMEI/serial AND a plain product
+  // barcode. On Enter the matched item is added to the cart directly (no click).
   const addByImei = async () => {
     const term = imei.trim();
     if (!term) return;
+    // 1) a serial-tracked device by IMEI / serial (e.g. a phone, or a generated serial)
     try {
       const { data } = await api.get('/units/lookup', { params: { imei: term } });
       pushUnit(data.data.unit);
       setImei('');
-    } catch (e) { toast.error(e.response?.data?.message || 'Device not found'); }
+      return;
+    } catch { /* not a device — fall through to product-barcode lookup */ }
+    // 2) a plain product by its barcode
+    try {
+      const { data } = await api.get(`/products/barcode/${encodeURIComponent(term)}`);
+      const p = data.data.product;
+      if (p.trackSerial) { toast.error('This product is IMEI-tracked — scan the device IMEI/serial'); setImei(''); return; }
+      if (p.stock < 1) { toast.error('Out of stock'); return; }
+      addToCart(p);
+      setImei('');
+    } catch {
+      toast.error('No product or device found for this barcode');
+    }
   };
 
   const changeQty = (key, d) => setCart((c) => c.map((i) => (lineKey(i) === key && !i.unitId) ? { ...i, qty: clampQty(i.qty + d, i.stock) } : i));
@@ -236,19 +251,18 @@ export default function POS() {
           </div>
         </div>
 
-        {isMobile && (
-          <div className="card p-3 flex items-center gap-2">
-            <ScanLine size={18} className="text-brand-500 shrink-0" />
-            <input
-              className="input"
-              placeholder="Scan or type IMEI / Serial to add a device..."
-              value={imei}
-              onChange={(e) => setImei(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') addByImei(); }}
-            />
-            <button className="btn-primary shrink-0" onClick={addByImei}>Add</button>
-          </div>
-        )}
+        <div className="card p-3 flex items-center gap-2">
+          <ScanLine size={18} className="text-brand-500 shrink-0" />
+          <input
+            className="input"
+            autoFocus
+            placeholder="Scan barcode / IMEI / serial to add to cart..."
+            value={imei}
+            onChange={(e) => setImei(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') addByImei(); }}
+          />
+          <button className="btn-primary shrink-0" onClick={addByImei}>Add</button>
+        </div>
 
         <div className="relative">
           <Search size={18} className="absolute left-3 top-2.5 text-slate-400" />
