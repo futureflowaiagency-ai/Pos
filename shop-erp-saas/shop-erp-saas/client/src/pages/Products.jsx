@@ -265,6 +265,7 @@ function UnitsModal({ product, onClose, onChanged }) {
   const [units, setUnits] = useState([]);
   const [row, setRow] = useState({ imei1: '', imei2: '', serial: '' });
   const [bulk, setBulk] = useState('');
+  const [genCount, setGenCount] = useState(10);
   const [loading, setLoading] = useState(false);
 
   const load = async () => {
@@ -290,9 +291,19 @@ function UnitsModal({ product, onClose, onChanged }) {
     submit([row]);
   };
   const addBulk = () => {
-    const lines = bulk.split('\n').map((l) => l.trim()).filter(Boolean).map((imei1) => ({ imei1 }));
-    if (!lines.length) return toast.error('Paste at least one IMEI');
-    submit(lines);
+    const raw = bulk.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (!raw.length) return toast.error('Paste at least one IMEI/serial');
+    const unique = [...new Set(raw)]; // drop repeated lines instead of erroring
+    if (unique.length < raw.length) toast(`Skipped ${raw.length - unique.length} duplicate line(s)`, { icon: '⚠️' });
+    submit(unique.map((imei1) => ({ imei1 })));
+  };
+  // For items with no real IMEI (accessories, etc.): auto-create N unique serials
+  // so each unit gets its own scannable barcode label.
+  const generateSerials = () => {
+    const n = Math.max(1, Math.min(200, Number(genCount) || 1));
+    const base = Date.now();
+    const list = Array.from({ length: n }, (_, i) => ({ serial: `${base}${String(i).padStart(3, '0')}` }));
+    submit(list);
   };
   const remove = async (u) => {
     try { await api.delete(`/units/${u._id}`); await load(); onChanged?.(); }
@@ -315,8 +326,17 @@ function UnitsModal({ product, onClose, onChanged }) {
 
       <div className="mb-4">
         <label className="label">Bulk add (one IMEI per line)</label>
-        <textarea className="input h-20" value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder="356789... \n356790..." />
+        <textarea className="input h-20" value={bulk} onChange={(e) => setBulk(e.target.value)} placeholder="356789...&#10;356790..." />
         <button className="btn-ghost mt-2" disabled={loading} onClick={addBulk}>Add All</button>
+      </div>
+
+      <div className="mb-4 bg-slate-50 dark:bg-slate-800 rounded-lg p-3">
+        <label className="label">No IMEI? Generate unique serials</label>
+        <p className="text-xs text-slate-400 mb-2">Creates unique auto-serial numbers so each item gets its own scannable barcode (useful for accessories without an IMEI).</p>
+        <div className="flex items-end gap-2">
+          <div><label className="label">How many</label><input className="input !w-28" type="number" min="1" max="200" value={genCount} onChange={(e) => setGenCount(e.target.value)} /></div>
+          <button className="btn-primary" disabled={loading} onClick={generateSerials}><Plus size={16} /> Generate &amp; Add</button>
+        </div>
       </div>
 
       <div className="max-h-64 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg">

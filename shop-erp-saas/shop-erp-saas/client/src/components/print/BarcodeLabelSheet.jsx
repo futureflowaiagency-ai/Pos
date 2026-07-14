@@ -1,13 +1,17 @@
 import Barcode from './Barcode.jsx';
 import { taka } from '../../utils/format.js';
 
-// An A4 sheet filled with `quantity` identical barcode labels, laid out
-// left→right, top→bottom in `columns` columns. Each label shows the product
-// name, colour, barcode and selling price (+ SKU if present).
-export default function BarcodeLabelSheet({ product, quantity = 20, columns = 3, business }) {
+// An A4 sheet of barcode labels laid out left→right, top→bottom in `columns`
+// columns. Each label shows the product name, colour, barcode and price (+ SKU).
+//
+// `codes` (optional) is a list of per-label barcode values — pass it to give each
+// label a UNIQUE code (e.g. one IMEI/serial per in-stock device). When omitted,
+// the sheet falls back to `quantity` copies of the shared product barcode.
+export default function BarcodeLabelSheet({ product, quantity = 20, columns = 3, business, codes }) {
   if (!product) return null;
-  const count = Math.max(1, Math.min(200, Number(quantity) || 1));
-  const labels = Array.from({ length: count });
+  const list = (codes && codes.length)
+    ? codes.slice(0, 200)
+    : Array.from({ length: Math.max(1, Math.min(200, Number(quantity) || 1)) }, () => product.barcode);
   const price = product.discountPercent > 0
     ? Math.round(product.sellingPrice * (1 - product.discountPercent / 100))
     : product.sellingPrice;
@@ -18,7 +22,7 @@ export default function BarcodeLabelSheet({ product, quantity = 20, columns = 3,
   return (
     <div className="print-a4" style={{ padding: '10mm' }}>
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: '3mm' }}>
-        {labels.map((_, i) => (
+        {list.map((code, i) => (
           <div
             key={i}
             style={{
@@ -39,7 +43,7 @@ export default function BarcodeLabelSheet({ product, quantity = 20, columns = 3,
             )}
             <div style={{ fontSize: 10, fontWeight: 700, lineHeight: 1.15, marginTop: 1 }}>{product.name}</div>
             {variant && <div style={{ fontSize: 8, color: '#555' }}>{variant}</div>}
-            <Barcode value={product.barcode} height={34} moduleWidth={moduleWidth} showText />
+            <Barcode value={code} height={34} moduleWidth={moduleWidth} showText />
             <div style={{ fontSize: 11, fontWeight: 700 }}>{taka(price)}</div>
             {product.sku && <div style={{ fontSize: 8, color: '#555' }}>SKU: {product.sku}</div>}
           </div>
