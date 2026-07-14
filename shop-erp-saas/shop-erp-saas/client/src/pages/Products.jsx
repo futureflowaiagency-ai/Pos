@@ -301,7 +301,9 @@ function UnitsModal({ product, onClose, onChanged }) {
   // so each unit gets its own scannable barcode label.
   const generateSerials = () => {
     const n = Math.max(1, Math.min(200, Number(genCount) || 1));
-    const base = Date.now();
+    // 9-digit time slice + 3-digit index = 12 digits, matching product-barcode
+    // length so the printed Code128-C barcode stays compact and easy to scan.
+    const base = String(Date.now()).slice(-9);
     const list = Array.from({ length: n }, (_, i) => ({ serial: `${base}${String(i).padStart(3, '0')}` }));
     submit(list);
   };

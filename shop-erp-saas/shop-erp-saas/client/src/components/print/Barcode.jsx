@@ -1,8 +1,12 @@
-// Dependency-free Code128-B barcode → inline SVG. No npm package required, so it
-// prints reliably from any browser. Handles ASCII 32–126 (digits, letters, symbols).
+// Dependency-free Code128 barcode → inline SVG. No npm package required, so it
+// prints reliably from any browser. Numeric values use Code128-C (2 digits per
+// symbol) so long numeric IDs stay physically compact and reliably scannable;
+// everything else falls back to Code128-B (ASCII 32–126).
 
-// Standard Code128 module-width patterns (index 0–106). Each string is the width
-// (in modules) of consecutive bar/space/bar/space… starting with a bar.
+// Standard Code128 module-width patterns (index 0–106) — the same table is
+// shared by subsets A/B/C per the Code128 spec; only the *meaning* of each
+// symbol value differs by subset. Each string is the width (in modules) of
+// consecutive bar/space/bar/space… starting with a bar.
 const PATTERNS = [
   '212222', '222122', '222221', '121223', '121322', '131222', '122213', '122312', '132212', '221213',
   '221312', '231212', '112232', '122132', '122231', '113222', '123122', '123221', '223211', '221132',
@@ -17,26 +21,41 @@ const PATTERNS = [
   '114131', '311141', '411131', '211412', '211214', '211232', '2331112',
 ];
 const START_B = 104;
+const START_C = 105;
 const STOP = 106;
 
-// Encode a string to the full concatenated module pattern.
+// Checksum + framing shared by both subsets: (start + Σ symbol_i * position_i) mod 103.
+function withChecksum(startValue, symbolValues) {
+  let sum = startValue;
+  symbolValues.forEach((v, i) => { sum += v * (i + 1); });
+  return [startValue, ...symbolValues, sum % 103, STOP];
+}
+
+// Code128-B: one symbol per ASCII character (32–126).
 function encode128B(text) {
   const clean = String(text).replace(/[^\x20-\x7E]/g, '');
-  const values = [START_B];
-  let sum = START_B;
-  for (let i = 0; i < clean.length; i++) {
-    const v = clean.charCodeAt(i) - 32;
-    values.push(v);
-    sum += v * (i + 1);
-  }
-  values.push(sum % 103); // checksum
-  values.push(STOP);
-  return values.map((v) => PATTERNS[v]).join('');
+  const symbolValues = [...clean].map((ch) => ch.charCodeAt(0) - 32);
+  return withChecksum(START_B, symbolValues);
+}
+
+// Code128-C: one symbol per PAIR of digits (00–99) — roughly half the width
+// of Code128-B for the same numeric value, which is what keeps long IDs
+// (auto-generated serials, barcodes, etc.) reliably scannable on a small label.
+function encode128C(digits) {
+  const padded = digits.length % 2 === 0 ? digits : '0' + digits; // even length required
+  const symbolValues = [];
+  for (let i = 0; i < padded.length; i += 2) symbolValues.push(Number(padded.slice(i, i + 2)));
+  return withChecksum(START_C, symbolValues);
+}
+
+function encodeValue(value) {
+  const str = String(value);
+  return /^[0-9]+$/.test(str) ? encode128C(str) : encode128B(str);
 }
 
 export default function Barcode({ value, height = 46, moduleWidth = 1.6, showText = true, className = '' }) {
   if (!value) return null;
-  const pattern = encode128B(value);
+  const pattern = encodeValue(value).map((v) => PATTERNS[v]).join('');
   const rects = [];
   let x = 0;
   let isBar = true;
