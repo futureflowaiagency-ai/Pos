@@ -16,13 +16,21 @@ const genInvoiceNo = () =>
   'INV-' + Date.now().toString().slice(-8) + '-' + Math.floor(Math.random() * 90 + 10);
 
 // @route POST /api/sales  (POS checkout)
-// body: { items:[{product, qty, unit?}], discount, paid, paymentMethod, customer, customerName, customerPhone, customerNid }
+// body: { items:[{product, qty, unit?}], discount, paid, paymentMethod, payments?:[{method,amount}], customer, customerName, customerPhone, customerNid }
+// `payments` (split/multi-tender) takes precedence when provided; otherwise a single
+// tender is synthesized from paymentMethod+paid (back-compat with older clients).
 export const createSale = asyncHandler(async (req, res) => {
-  const { items = [], discount = 0, paid = 0, paymentMethod = 'cash', customer = null, customerName: reqName = '', customerPhone = '', customerNid = '' } = req.body;
+  const { items = [], discount = 0, paid = 0, paymentMethod = 'cash', payments: reqPayments = null, customer = null, customerName: reqName = '', customerPhone = '', customerNid = '' } = req.body;
   if (!items.length) throw new ApiError(400, 'No items in sale');
   // Walk-in is removed: a sale must always be tied to a customer (by id, or by name + phone).
   if (!customer && !(String(reqName).trim() && String(customerPhone).trim()))
     throw new ApiError(400, 'Customer name and phone are required');
+
+  // Normalize the payment breakdown: drop zero/invalid lines, clamp to known tenders.
+  const cleanPayments = (Array.isArray(reqPayments) ? reqPayments : [])
+    .map((p) => ({ method: TENDERS.includes(p.method) ? p.method : 'cash', amount: Number(p.amount) || 0 }))
+    .filter((p) => p.amount > 0);
+  const paidTotal = cleanPayments.length ? cleanPayments.reduce((s, p) => s + p.amount, 0) : Number(paid) || 0;
 
   const session = await mongoose.startSession();
   let sale;
@@ -96,7 +104,7 @@ export const createSale = asyncHandler(async (req, res) => {
       }
 
       const total = Math.max(0, subTotal - discount);
-      const due = Math.max(0, total - paid);
+      const due = Math.max(0, total - paidTotal);
 
       // Resolve the customer — find an existing one (by id or phone) or create a
       // new record on the fly. This keeps dues attached and lets old invoices be
@@ -121,6 +129,12 @@ export const createSale = asyncHandler(async (req, res) => {
         await custDoc.save({ session });
       }
 
+      // Multi-tender if the client sent >1 payment line; else fall back to the
+      // single paymentMethod (back-compat with EMI/exchange/older clients).
+      const finalPayments = cleanPayments.length ? cleanPayments : (paidTotal > 0 ? [{ method: ['due', 'emi'].includes(paymentMethod) ? 'cash' : paymentMethod, amount: paidTotal }] : []);
+      const primaryMethod = finalPayments[0]?.method || 'cash';
+      const badgeMethod = due > 0 ? 'due' : (finalPayments.length > 1 ? 'split' : primaryMethod);
+
       [sale] = await Sale.create([{
         business: req.businessId,
         invoiceNo: genInvoiceNo(),
@@ -128,11 +142,12 @@ export const createSale = asyncHandler(async (req, res) => {
         customerName,
         customerNid: nid,
         items: lineItems,
-        subTotal, discount, total, paid, due,
+        subTotal, discount, total, paid: paidTotal, due,
         profit: profit - discount, // discount reduces realized profit
-        paymentMethod: due > 0 ? 'due' : paymentMethod,
-        // real tender for the paid portion — 'due'/'emi' aren't real tenders, fall back to cash
-        paidVia: ['due', 'emi'].includes(paymentMethod) ? 'cash' : paymentMethod,
+        paymentMethod: badgeMethod,
+        // real tender for the paid portion — legacy field, kept as the primary/first tender
+        paidVia: primaryMethod,
+        payments: finalPayments,
         soldBy: req.user._id,
       }], { session });
 
@@ -205,6 +220,13 @@ export const updateSale = asyncHandler(async (req, res) => {
   if (TENDERS.includes(paymentMethod)) sale.paidVia = paymentMethod;
   // classification/badge: 'due' while owing, else the real tender
   sale.paymentMethod = sale.due > 0 ? 'due' : (TENDERS.includes(sale.paidVia) ? sale.paidVia : 'cash');
+
+  // This editor only supports a single tender — collapse any prior split-payment
+  // breakdown so the balance engine (which prefers `payments` when non-empty)
+  // doesn't use a now-stale multi-tender split alongside the new `paid` amount.
+  if (paid != null || paymentMethod != null) {
+    sale.payments = sale.paid > 0 ? [{ method: sale.paidVia, amount: sale.paid }] : [];
+  }
 
   await sale.save();
 

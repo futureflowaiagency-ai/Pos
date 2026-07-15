@@ -155,7 +155,11 @@ export default function OrderDetailsModal({ saleId, onClose, onChanged }) {
               <Row l="Subtotal" r={taka(sale.subTotal)} />
               <Row l="Discount" r={`-${taka(sale.discount)}`} />
               <Row l="Total" r={taka(sale.total)} bold />
-              <Row l="Paid" r={taka(paidTotal)} />
+              {sale.payments?.length > 1 ? (
+                sale.payments.map((p, i) => <Row key={i} l={`Paid (${p.method})`} r={taka(p.amount)} />)
+              ) : (
+                <Row l="Paid" r={taka(paidTotal)} />
+              )}
               <Row l="Due" r={taka(sale.due)} red={sale.due > 0} />
             </div>
           </div>

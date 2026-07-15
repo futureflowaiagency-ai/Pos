@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2, TrendingUp, TrendingDown, Wallet, Printer, PiggyBank, FileBarChart } from 'lucide-react';
+import { Plus, Trash2, TrendingUp, TrendingDown, Wallet, Printer, PiggyBank, FileBarChart, ArrowLeftRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios.js';
 import StatCard from '../components/ui/StatCard.jsx';
@@ -25,7 +25,11 @@ export default function Finance() {
   // fund (capital) state
   const [funds, setFunds] = useState([]);
   const [fundModal, setFundModal] = useState(false);
-  const [fundForm, setFundForm] = useState({ source: 'cash', amount: 0, note: '' });
+  const [fundForm, setFundForm] = useState({ source: 'cash', type: 'add', amount: 0, note: '' });
+  // balance transfer state (move money between the shop's own payment methods)
+  const [transfers, setTransfers] = useState([]);
+  const [transferModal, setTransferModal] = useState(false);
+  const [transferForm, setTransferForm] = useState({ fromMethod: 'bkash', toMethod: 'cash', amount: 0, note: '' });
   // advanced report (req 8)
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
@@ -35,16 +39,18 @@ export default function Finance() {
   const [advLoading, setAdvLoading] = useState(false);
 
   const load = async () => {
-    const [s, e, r, f] = await Promise.all([
+    const [s, e, r, f, tr] = await Promise.all([
       api.get('/dashboard/summary'),
       api.get('/expenses'),
       api.get(`/sales/report?period=${period}`),
       api.get('/funds'),
+      api.get('/transfers'),
     ]);
     setSummary(s.data.data.summary);
     setExpenses(e.data.data.expenses);
     setReport(r.data.data.report);
     setFunds(f.data.data.funds);
+    setTransfers(tr.data.data.transfers);
   };
   useEffect(() => { load(); }, [period]);
 
@@ -63,13 +69,28 @@ export default function Finance() {
     try {
       if (!(+fundForm.amount > 0)) return toast.error('Enter an amount');
       await api.post('/funds', { ...fundForm, amount: +fundForm.amount });
-      toast.success(t('Fund added'));
+      toast.success(fundForm.type === 'withdraw' ? t('Fund withdrawn') : t('Fund added'));
       setFundModal(false);
-      setFundForm({ source: 'cash', amount: 0, note: '' });
+      setFundForm({ source: 'cash', type: 'add', amount: 0, note: '' });
       load();
     } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
   };
   const delFund = async (id) => { if (!confirm('Delete?')) return; await api.delete(`/funds/${id}`); load(); };
+
+  const openFund = (type) => { setFundForm({ source: 'cash', type, amount: 0, note: '' }); setFundModal(true); };
+
+  const saveTransfer = async () => {
+    try {
+      if (!(+transferForm.amount > 0)) return toast.error('Enter an amount');
+      if (transferForm.fromMethod === transferForm.toMethod) return toast.error('Choose two different methods');
+      await api.post('/transfers', { ...transferForm, amount: +transferForm.amount });
+      toast.success(t('Balance transferred'));
+      setTransferModal(false);
+      setTransferForm({ fromMethod: 'bkash', toMethod: 'cash', amount: 0, note: '' });
+      load();
+    } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
+  };
+  const delTransfer = async (id) => { if (!confirm('Delete?')) return; await api.delete(`/transfers/${id}`); load(); };
 
   const runAdvancedReport = async () => {
     setAdvLoading(true);
@@ -87,12 +108,29 @@ export default function Finance() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-2xl font-bold">Finance</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button className="btn-ghost" onClick={() => setPrintReport(true)}><Printer size={18} /> Print Report</button>
-          <button className="btn-ghost" onClick={() => setFundModal(true)}><PiggyBank size={18} /> Add Fund</button>
+          <button className="btn-ghost" onClick={() => openFund('add')}><PiggyBank size={18} /> Add Fund</button>
+          <button className="btn-ghost" onClick={() => openFund('withdraw')}><PiggyBank size={18} /> Withdraw Fund</button>
+          <button className="btn-ghost" onClick={() => setTransferModal(true)}><ArrowLeftRight size={18} /> Transfer Balance</button>
           <button className="btn-primary" onClick={() => setModal(true)}><Plus size={18} /> Add Expense</button>
         </div>
       </div>
+
+      {/* Current balances — pick from/to at a glance when transferring or withdrawing */}
+      {summary.balances && (
+        <div className="card p-4">
+          <h3 className="font-semibold mb-3">Balances</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 text-center">
+            {Object.entries(summary.balances).map(([k, v]) => (
+              <div key={k} className="rounded-lg bg-slate-50 dark:bg-slate-800 p-2">
+                <p className="text-xs text-slate-400 capitalize">{k}</p>
+                <p className="font-semibold">{taka(v)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Advanced Report — full metric report, date-ranged, print/PDF (req 8) */}
       <div className="card p-4 flex flex-wrap items-end gap-3">
@@ -159,21 +197,46 @@ export default function Finance() {
 
       <div className="card p-4">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="font-semibold flex items-center gap-2"><PiggyBank size={18} /> Fund History (capital added)</h3>
-          <span className="text-sm text-slate-400">Total: {taka(funds.reduce((a, f) => a + (f.amount || 0), 0))}</span>
+          <h3 className="font-semibold flex items-center gap-2"><PiggyBank size={18} /> Fund History (capital added / withdrawn)</h3>
+          <span className="text-sm text-slate-400">Net: {taka(funds.reduce((a, f) => a + (f.type === 'withdraw' ? -f.amount : f.amount), 0))}</span>
         </div>
         <DataTable
           columns={[
-            { key: 'source', label: 'Added To', render: (r) => <span className="capitalize">{r.source}</span> },
+            { key: 'type', label: 'Type', render: (r) => (
+              <span className={`badge ${r.type === 'withdraw' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{r.type === 'withdraw' ? 'Withdraw' : 'Add'}</span>
+            )},
+            { key: 'source', label: 'Method', render: (r) => <span className="capitalize">{r.source}</span> },
             { key: 'note', label: 'Note', render: (r) => r.note || '—' },
             { key: 'date', label: 'Date', render: (r) => fmtDate(r.date) },
-            { key: 'amount', label: 'Amount', className: 'text-right', render: (r) => <span className="text-green-600">{taka(r.amount)}</span> },
+            { key: 'amount', label: 'Amount', className: 'text-right', render: (r) => (
+              <span className={r.type === 'withdraw' ? 'text-red-500' : 'text-green-600'}>{r.type === 'withdraw' ? '-' : '+'}{taka(r.amount)}</span>
+            )},
             { key: 'actions', label: '', className: 'text-right', render: (r) => (
               <button onClick={() => delFund(r._id)} className="btn-ghost p-1.5 text-red-500"><Trash2 size={15} /></button>
             )},
           ]}
           rows={funds}
           empty="No funds added yet"
+        />
+      </div>
+
+      <div className="card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold flex items-center gap-2"><ArrowLeftRight size={18} /> Balance Transfer History</h3>
+        </div>
+        <DataTable
+          columns={[
+            { key: 'fromMethod', label: 'From', render: (r) => <span className="capitalize">{r.fromMethod}</span> },
+            { key: 'toMethod', label: 'To', render: (r) => <span className="capitalize">{r.toMethod}</span> },
+            { key: 'note', label: 'Note', render: (r) => r.note || '—' },
+            { key: 'date', label: 'Date', render: (r) => fmtDate(r.date) },
+            { key: 'amount', label: 'Amount', className: 'text-right', render: (r) => taka(r.amount) },
+            { key: 'actions', label: '', className: 'text-right', render: (r) => (
+              <button onClick={() => delTransfer(r._id)} className="btn-ghost p-1.5 text-red-500"><Trash2 size={15} /></button>
+            )},
+          ]}
+          rows={transfers}
+          empty="No transfers yet"
         />
       </div>
 
@@ -199,13 +262,21 @@ export default function Finance() {
         </div>
       </Modal>
 
-      <Modal open={fundModal} onClose={() => setFundModal(false)} title="Add Fund (Capital)"
+      <Modal open={fundModal} onClose={() => setFundModal(false)} title={fundForm.type === 'withdraw' ? 'Withdraw Fund (Capital)' : 'Add Fund (Capital)'}
         footer={<><button className="btn-ghost" onClick={() => setFundModal(false)}>Cancel</button><button className="btn-primary" onClick={saveFund}>Save</button></>}>
         <div className="space-y-3">
-          <p className="text-xs text-slate-400">Capital brought in from outside the shop. This tops up the selected balance and is <b>not</b> counted as income or expense.</p>
+          <div className="flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 text-sm">
+            <button type="button" className={`flex-1 py-1.5 ${fundForm.type === 'add' ? 'bg-brand-600 text-white' : ''}`} onClick={() => setFundForm({ ...fundForm, type: 'add' })}>Add Capital</button>
+            <button type="button" className={`flex-1 py-1.5 ${fundForm.type === 'withdraw' ? 'bg-brand-600 text-white' : ''}`} onClick={() => setFundForm({ ...fundForm, type: 'withdraw' })}>Withdraw Capital</button>
+          </div>
+          <p className="text-xs text-slate-400">
+            {fundForm.type === 'withdraw'
+              ? <>Take back part (or all) of capital previously brought in — e.g. you added ৳20,000 and now want ৳10,000 back, rest later. This reduces the selected balance and is <b>not</b> an expense.</>
+              : <>Capital brought in from outside the shop. This tops up the selected balance and is <b>not</b> counted as income or expense.</>}
+          </p>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="label">Amount</label><input className="input" type="number" value={fundForm.amount} onChange={(e) => setFundForm({ ...fundForm, amount: e.target.value })} /></div>
-            <div><label className="label">Add To</label>
+            <div><label className="label">{fundForm.type === 'withdraw' ? 'Withdraw From' : 'Add To'}</label>
               <select className="input" value={fundForm.source} onChange={(e) => setFundForm({ ...fundForm, source: e.target.value })}>
                 <option value="cash">Cash</option><option value="bank">Bank</option><option value="bkash">bKash</option>
                 <option value="nagad">Nagad</option><option value="rocket">Rocket</option><option value="card">Card</option>
@@ -213,6 +284,33 @@ export default function Finance() {
             </div>
           </div>
           <div><label className="label">Note</label><input className="input" value={fundForm.note} onChange={(e) => setFundForm({ ...fundForm, note: e.target.value })} placeholder="e.g. owner capital, loan" /></div>
+        </div>
+      </Modal>
+
+      <Modal open={transferModal} onClose={() => setTransferModal(false)} title="Transfer Balance"
+        footer={<><button className="btn-ghost" onClick={() => setTransferModal(false)}>Cancel</button><button className="btn-primary" onClick={saveTransfer}>Transfer</button></>}>
+        <div className="space-y-3">
+          <p className="text-xs text-slate-400">Move money between your own balances in one step — e.g. bKash ৳5,000 cashed out to Cash. Not income or expense; one balance goes down, the other goes up.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="label">From</label>
+              <select className="input" value={transferForm.fromMethod} onChange={(e) => setTransferForm({ ...transferForm, fromMethod: e.target.value })}>
+                <option value="cash">Cash ({taka(summary.balances?.cash || 0)})</option>
+                <option value="bank">Bank ({taka(summary.balances?.bank || 0)})</option>
+                <option value="bkash">bKash ({taka(summary.balances?.bkash || 0)})</option>
+                <option value="nagad">Nagad ({taka(summary.balances?.nagad || 0)})</option>
+                <option value="rocket">Rocket ({taka(summary.balances?.rocket || 0)})</option>
+                <option value="card">Card ({taka(summary.balances?.card || 0)})</option>
+              </select>
+            </div>
+            <div><label className="label">To</label>
+              <select className="input" value={transferForm.toMethod} onChange={(e) => setTransferForm({ ...transferForm, toMethod: e.target.value })}>
+                <option value="cash">Cash</option><option value="bank">Bank</option><option value="bkash">bKash</option>
+                <option value="nagad">Nagad</option><option value="rocket">Rocket</option><option value="card">Card</option>
+              </select>
+            </div>
+          </div>
+          <div><label className="label">Amount</label><input className="input" type="number" value={transferForm.amount} onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value })} /></div>
+          <div><label className="label">Note</label><input className="input" value={transferForm.note} onChange={(e) => setTransferForm({ ...transferForm, note: e.target.value })} placeholder="e.g. cashed out at the counter" /></div>
         </div>
       </Modal>
 

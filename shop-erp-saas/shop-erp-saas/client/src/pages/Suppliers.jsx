@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Search, Wallet, PackagePlus, ScrollText, Printer, TrendingUp, TrendingDown, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, Wallet, PackagePlus, ScrollText, Printer, TrendingUp, TrendingDown, AlertTriangle, Boxes } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios.js';
 import DataTable from '../components/ui/DataTable.jsx';
@@ -35,6 +35,7 @@ export default function Suppliers() {
   const [purchaseFor, setPurchaseFor] = useState(null);
   const [payFor, setPayFor] = useState(null);
   const [ledgerFor, setLedgerFor] = useState(null);
+  const [productsFor, setProductsFor] = useState(null);
 
   const load = async () => {
     const { data } = await api.get('/suppliers', { params: { search } });
@@ -133,6 +134,7 @@ export default function Suppliers() {
               <button onClick={() => setPurchaseFor(r)} className="btn-ghost p-1.5" title="Record purchase"><PackagePlus size={15} /></button>
               <button onClick={() => setPayFor(r)} className="btn-ghost p-1.5" title="Pay due"><Wallet size={15} /></button>
               <button onClick={() => setLedgerFor(r)} className="btn-ghost p-1.5" title="Ledger"><ScrollText size={15} /></button>
+              <button onClick={() => setProductsFor(r)} className="btn-ghost p-1.5" title="Products bought (sold vs remaining)"><Boxes size={15} /></button>
               <button onClick={() => openEdit(r)} className="btn-ghost p-1.5"><Pencil size={15} /></button>
               <button onClick={() => del(r)} className="btn-ghost p-1.5 text-red-500"><Trash2 size={15} /></button>
             </div>
@@ -156,6 +158,7 @@ export default function Suppliers() {
       {purchaseFor && <PurchaseModal supplier={purchaseFor} onClose={() => setPurchaseFor(null)} onDone={refreshAll} onPrint={setPrintPurchase} />}
       {payFor && <PayModal supplier={payFor} onClose={() => setPayFor(null)} onDone={refreshAll} />}
       {ledgerFor && <LedgerModal supplier={ledgerFor} onClose={() => setLedgerFor(null)} onPrint={setPrintPurchase} />}
+      {productsFor && <SupplierProductsModal supplier={productsFor} onClose={() => setProductsFor(null)} />}
 
       {/* Purchase report print / reprint */}
       <PrintWrapper open={!!printPurchase} onClose={() => setPrintPurchase(null)} title="Purchase Report">
@@ -310,6 +313,50 @@ function LedgerModal({ supplier, onClose, onPrint }) {
             </table>
           </div>
         </>
+      )}
+    </Modal>
+  );
+}
+
+// Per-product breakdown for a supplier: how many bought, how many sold, how many
+// remain in stock right now (req: "10 pcs Samsung S23 Ultra bought — koyta bikri
+// korlam, koyta thaklo").
+function SupplierProductsModal({ supplier, onClose }) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => {
+    api.get(`/suppliers/${supplier._id}/products`).then(({ data }) => setRows(data.data.products));
+  }, [supplier._id]);
+
+  return (
+    <Modal open onClose={onClose} title={`Products Bought — ${supplier.name}`} size="lg" footer={<button className="btn-ghost" onClick={onClose}>Close</button>}>
+      {!rows ? (
+        <p className="text-slate-400 text-center py-6">Loading...</p>
+      ) : rows.length === 0 ? (
+        <p className="text-slate-400 text-center py-6 text-sm">No product-linked purchases yet from this supplier. (Only purchases made via Add Product's supplier field are tracked per-product here.)</p>
+      ) : (
+        <div className="max-h-96 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 dark:bg-slate-700/50 text-left sticky top-0">
+              <tr>
+                <th className="px-3 py-2">Product</th>
+                <th className="px-3 py-2 text-right">Purchased</th>
+                <th className="px-3 py-2 text-right">Sold</th>
+                <th className="px-3 py-2 text-right">Current Stock</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.productId} className="border-t border-slate-100 dark:border-slate-700">
+                  <td className="px-3 py-2">{r.name}</td>
+                  <td className="px-3 py-2 text-right">{r.purchasedQty}</td>
+                  <td className="px-3 py-2 text-right">{r.soldQty}</td>
+                  <td className="px-3 py-2 text-right font-semibold">{r.currentStock ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="text-xs text-slate-400 p-3">Sold/Current Stock are shop-wide for each product (a sale doesn't record which supplier a specific unit came from).</p>
+        </div>
       )}
     </Modal>
   );

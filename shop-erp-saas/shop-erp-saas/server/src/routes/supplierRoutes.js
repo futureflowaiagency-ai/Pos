@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import {
   getSuppliers, createSupplier, updateSupplier, deleteSupplier,
-  supplierLedger, recordPurchase, paySupplier, supplierDashboard,
+  supplierLedger, recordPurchase, paySupplier, supplierDashboard, supplierProductBreakdown,
 } from '../controllers/supplierController.js';
 import { protect } from '../middleware/auth.js';
 import { requireBusiness } from '../middleware/tenant.js';
@@ -14,5 +14,6 @@ router.get('/dashboard/summary', supplierDashboard);
 router.route('/:id').get(supplierLedger).put(updateSupplier).delete(deleteSupplier);
 router.post('/:id/purchase', recordPurchase);
 router.post('/:id/pay', paySupplier);
+router.get('/:id/products', supplierProductBreakdown);
 
 export default router;

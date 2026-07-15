@@ -41,7 +41,11 @@ export default function ThermalReceipt({ sale, business }) {
       <Line l="Subtotal" r={taka(sale.subTotal)} />
       <Line l="Discount" r={taka(sale.discount)} />
       <Line l="TOTAL" r={taka(sale.total)} bold />
-      <Line l="Paid" r={taka(sale.total - sale.due)} />
+      {sale.payments?.length > 1 ? (
+        sale.payments.map((p, i) => <Line key={i} l={`Paid (${p.method})`} r={taka(p.amount)} />)
+      ) : (
+        <Line l="Paid" r={taka(sale.total - sale.due)} />
+      )}
       <Line l="Due" r={taka(sale.due)} />
       <div className="thermal-divider" />
       <div style={{ textAlign: 'center', marginTop: 4 }}>

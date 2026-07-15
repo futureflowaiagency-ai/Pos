@@ -15,6 +15,11 @@ const empty = {
   // mobile-shop fields
   trackSerial: false, brand: '', color: '', storage: '', warrantyBrandMonths: 0, warrantyShopMonths: 0,
 };
+// one item block in the "Add Product" (create) flow — same shape as `empty`, plus a
+// raw IMEI/serial textarea so a serial-tracked item's units can be entered inline.
+const emptyItem = { ...empty, imeis: '' };
+const emptySupplier = { name: '', phone: '' };
+const emptyPurchase = { reference: '', note: '', paid: 0, source: 'cash' };
 
 const isMedicineCat = (cat) => /medicine|medicin|drug|pharma/i.test(cat || '');
 const toDateInput = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
@@ -31,17 +36,25 @@ export default function Products() {
   const [products, setProducts] = useState([]);
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(false);
-  const [form, setForm] = useState(empty);
+  const [form, setForm] = useState(empty); // used for Edit only
   const [editId, setEditId] = useState(null);
+  // Add Product (create) uses a repeatable item list + an optional supplier/dealer,
+  // so several products from the same supplier delivery can be entered in one go.
+  const [items, setItems] = useState([emptyItem]);
+  const [supplier, setSupplier] = useState(emptySupplier);
+  const [purchase, setPurchase] = useState(emptyPurchase);
+  const [supplierList, setSupplierList] = useState([]);
   const [unitsFor, setUnitsFor] = useState(null); // product whose IMEIs are being managed
   const [labelFor, setLabelFor] = useState(null); // product whose barcode labels are being printed
   const [scanCode, setScanCode] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const load = async () => {
     const { data } = await api.get('/products', { params: { search } });
     setProducts(data.data.products);
   };
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [search]);
+  useEffect(() => { api.get('/suppliers').then(({ data }) => setSupplierList(data.data.suppliers)).catch(() => {}); }, []);
 
   // Scan/enter a barcode: if it matches an existing product, don't create a new
   // one — for IMEI-tracked products jump straight to adding a new device (req 1),
@@ -58,7 +71,8 @@ export default function Products() {
     } catch (e) {
       if (e.response?.status === 404) {
         // unknown barcode → start a new product prefilled with this barcode
-        setForm({ ...empty, category: isMobile ? 'Mobile' : (business?.type === 'pharmacy' ? 'Medicine' : 'General'), trackSerial: isMobile, barcode: code });
+        setItems([{ ...emptyItem, category: isMobile ? 'Mobile' : (business?.type === 'pharmacy' ? 'Medicine' : 'General'), trackSerial: isMobile, barcode: code }]);
+        setSupplier(emptySupplier); setPurchase(emptyPurchase);
         setEditId(null); setModal(true); setScanCode('');
         toast('New barcode — create the product', { icon: '🆕' });
       } else {
@@ -68,14 +82,20 @@ export default function Products() {
   };
 
   const openNew = () => {
-    setForm({ ...empty, category: isMobile ? 'Mobile' : (business?.type === 'pharmacy' ? 'Medicine' : 'General'), trackSerial: isMobile });
+    setItems([{ ...emptyItem, category: isMobile ? 'Mobile' : (business?.type === 'pharmacy' ? 'Medicine' : 'General'), trackSerial: isMobile }]);
+    setSupplier(emptySupplier); setPurchase(emptyPurchase);
     setEditId(null); setModal(true);
   };
   const openEdit = (p) => { setForm({ ...empty, ...p, expiryDate: toDateInput(p.expiryDate) }); setEditId(p._id); setModal(true); };
 
   const requiresExpiry = isMedicineCat(form.category);
 
-  const save = async () => {
+  // ---- create-mode item list helpers ----
+  const setItemField = (i, k, v) => setItems((arr) => arr.map((it, idx) => idx === i ? { ...it, [k]: v } : it));
+  const addItemBlock = () => setItems((arr) => [...arr, { ...emptyItem, category: isMobile ? 'Mobile' : (business?.type === 'pharmacy' ? 'Medicine' : 'General'), trackSerial: isMobile }]);
+  const removeItemBlock = (i) => setItems((arr) => arr.length > 1 ? arr.filter((_, idx) => idx !== i) : arr);
+
+  const saveEdit = async () => {
     if (!form.name.trim()) return toast.error('Name is required');
     if (requiresExpiry && !form.expiryDate) return toast.error('Expiry date is required for medicines');
     if (Number(form.discountPercent) < 0 || Number(form.discountPercent) > 100) return toast.error('Discount must be between 0 and 100%');
@@ -91,11 +111,57 @@ export default function Products() {
         warrantyShopMonths: +form.warrantyShopMonths || 0,
         expiryDate: form.expiryDate || undefined,
       };
-      if (editId) await api.put(`/products/${editId}`, payload);
-      else await api.post('/products', payload);
+      await api.put(`/products/${editId}`, payload);
       toast.success('Saved'); setModal(false); load();
     } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
   };
+
+  const saveNew = async () => {
+    for (const it of items) {
+      if (!it.name.trim()) return toast.error('Every item needs a name');
+      if (isMedicineCat(it.category) && !it.expiryDate) return toast.error(`Expiry date is required for medicine: ${it.name}`);
+      if (Number(it.discountPercent) < 0 || Number(it.discountPercent) > 100) return toast.error('Discount must be between 0 and 100%');
+      if (it.trackSerial && !it.imeis.trim()) return toast.error(`Add at least one ${isMobile ? 'IMEI/serial' : 'unit code'} for ${it.name}`);
+    }
+    setSaving(true);
+    try {
+      const supplierName = supplier.name.trim();
+      if (!supplierName && items.length === 1) {
+        // no supplier + a single item → identical to the original simple Add Product flow
+        const it = items[0];
+        const payload = {
+          ...it,
+          purchasePrice: +it.purchasePrice, sellingPrice: +it.sellingPrice, discountPercent: +it.discountPercent || 0,
+          stock: it.trackSerial ? undefined : +it.stock, lowStockAlert: +it.lowStockAlert,
+          warrantyBrandMonths: +it.warrantyBrandMonths || 0, warrantyShopMonths: +it.warrantyShopMonths || 0,
+          expiryDate: it.expiryDate || undefined,
+        };
+        delete payload.imeis;
+        const { data } = await api.post('/products', payload);
+        if (it.trackSerial) {
+          const units = it.imeis.split('\n').map((l) => l.trim()).filter(Boolean).map((v) => (isMobile ? { imei1: v } : { serial: v }));
+          if (units.length) await api.post('/units', { product: data.data.product._id, units });
+        }
+      } else {
+        if (!supplierName) return toast.error('Supplier / dealer name is required when adding more than one item');
+        await api.post('/products/batch-with-supplier', {
+          supplierName, supplierPhone: supplier.phone, ...purchase, paid: +purchase.paid || 0,
+          items: items.map((it) => ({
+            ...it,
+            purchasePrice: +it.purchasePrice, sellingPrice: +it.sellingPrice, discountPercent: +it.discountPercent || 0,
+            stock: it.trackSerial ? undefined : +it.stock, lowStockAlert: +it.lowStockAlert,
+            warrantyBrandMonths: +it.warrantyBrandMonths || 0, warrantyShopMonths: +it.warrantyShopMonths || 0,
+            expiryDate: it.expiryDate || undefined,
+            imeis: it.trackSerial ? it.imeis.split('\n').map((l) => l.trim()).filter(Boolean).map((v) => (isMobile ? { imei1: v } : { serial: v })) : undefined,
+          })),
+        });
+      }
+      toast.success('Saved'); setModal(false); load();
+    } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
+    setSaving(false);
+  };
+
+  const save = () => (editId ? saveEdit() : saveNew());
 
   const del = async (p) => {
     const ok = await confirm({
@@ -191,82 +257,202 @@ export default function Products() {
         footer={<>
           {serialEnabled && editId && form.barcode && <button className="btn-ghost mr-auto" onClick={() => setLabelFor(form)}><Tag size={16} /> Print Label</button>}
           <button className="btn-ghost" onClick={() => setModal(false)}>Cancel</button>
-          <button className="btn-primary" onClick={save}>Save</button>
+          <button className="btn-primary" disabled={saving} onClick={save}>Save</button>
         </>}>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="col-span-2"><label className="label">Name</label><input className="input" value={form.name} onChange={set('name')} placeholder={isMobile ? 'e.g. iPhone 15 Pro' : ''} /></div>
-          {serialEnabled && (
+        {editId ? (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2"><label className="label">Name</label><input className="input" value={form.name} onChange={set('name')} placeholder={isMobile ? 'e.g. iPhone 15 Pro' : ''} /></div>
+            {serialEnabled && (
+              <div>
+                <label className="label">Barcode</label>
+                <input className="input font-mono" value={form.barcode || ''} onChange={set('barcode')} placeholder="Auto-generated on save" />
+              </div>
+            )}
+            <div><label className="label">SKU / Product Code</label><input className="input" value={form.sku || ''} onChange={set('sku')} placeholder="Optional" /></div>
+            <div><label className="label">Category</label><input className="input" value={form.category} onChange={set('category')} /></div>
+            <div><label className="label">Unit</label><input className="input" value={form.unit} onChange={set('unit')} /></div>
+
+            {isMobile && (
+              <>
+                <div><label className="label">Brand</label><input className="input" value={form.brand} onChange={set('brand')} placeholder="Apple, Samsung..." /></div>
+                <div><label className="label">Storage (RAM/ROM)</label><input className="input" value={form.storage} onChange={set('storage')} placeholder="8GB/128GB" /></div>
+                <div><label className="label">Color</label><input className="input" value={form.color} onChange={set('color')} placeholder="Black" /></div>
+                <div><label className="label">Brand Warranty (months)</label><input className="input" type="number" min="0" value={form.warrantyBrandMonths} onChange={set('warrantyBrandMonths')} /></div>
+                <div><label className="label">Shop Warranty (months)</label><input className="input" type="number" min="0" value={form.warrantyShopMonths} onChange={set('warrantyShopMonths')} /></div>
+              </>
+            )}
+
+            {serialEnabled && (
+              <div className="flex items-end">
+                <label className="inline-flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={!!form.trackSerial} onChange={setChk('trackSerial')} />
+                  {isMobile ? 'Track by IMEI / Serial' : 'Track each unit with a unique code'}
+                </label>
+              </div>
+            )}
+
+            <div><label className="label">Purchase Price</label><input className="input" type="number" value={form.purchasePrice} onChange={set('purchasePrice')} /></div>
+            <div><label className="label">Selling Price</label><input className="input" type="number" value={form.sellingPrice} onChange={set('sellingPrice')} /></div>
             <div>
-              <label className="label">Barcode</label>
-              <input className="input font-mono" value={form.barcode || ''} onChange={set('barcode')} placeholder="Auto-generated on save" />
+              <label className="label">Discount (%)</label>
+              <input className="input" type="number" min="0" max="100" value={form.discountPercent} onChange={set('discountPercent')} />
             </div>
-          )}
-          <div><label className="label">SKU / Product Code</label><input className="input" value={form.sku || ''} onChange={set('sku')} placeholder="Optional" /></div>
-          <div><label className="label">Category</label><input className="input" value={form.category} onChange={set('category')} /></div>
-          <div><label className="label">Unit</label><input className="input" value={form.unit} onChange={set('unit')} /></div>
+            <div className="flex flex-col justify-end">
+              <span className="label">Discounted Price</span>
+              <div className="input bg-slate-50 dark:bg-slate-800 flex items-center font-semibold">{taka(discounted({ sellingPrice: +form.sellingPrice || 0, discountPercent: +form.discountPercent || 0 }))}</div>
+            </div>
 
-          {isMobile && (
-            <>
-              <div><label className="label">Brand</label><input className="input" value={form.brand} onChange={set('brand')} placeholder="Apple, Samsung..." /></div>
-              <div><label className="label">Storage (RAM/ROM)</label><input className="input" value={form.storage} onChange={set('storage')} placeholder="8GB/128GB" /></div>
-              <div><label className="label">Color</label><input className="input" value={form.color} onChange={set('color')} placeholder="Black" /></div>
-              <div><label className="label">Brand Warranty (months)</label><input className="input" type="number" min="0" value={form.warrantyBrandMonths} onChange={set('warrantyBrandMonths')} /></div>
-              <div><label className="label">Shop Warranty (months)</label><input className="input" type="number" min="0" value={form.warrantyShopMonths} onChange={set('warrantyShopMonths')} /></div>
-            </>
-          )}
-
-          {serialEnabled && (
+            {form.trackSerial ? (
+              <div className="col-span-2 text-xs text-slate-500 bg-slate-50 dark:bg-slate-800 rounded-lg p-2">
+                Stock is managed automatically from the unit codes. Use the {isMobile ? 'IMEI' : 'unit'} button (▥) in the list to add {isMobile ? 'devices' : 'unit codes'}.
+              </div>
+            ) : (
+              <div><label className="label">Stock</label><input className="input" type="number" value={form.stock} onChange={set('stock')} /></div>
+            )}
+            <div><label className="label">Low Stock Alert</label><input className="input" type="number" value={form.lowStockAlert} onChange={set('lowStockAlert')} /></div>
             <div className="flex items-end">
               <label className="inline-flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={!!form.trackSerial} onChange={setChk('trackSerial')} />
-                {isMobile ? 'Track by IMEI / Serial' : 'Track each unit with a unique code'}
+                <input type="checkbox" checked={form.returnable !== false} onChange={setChk('returnable')} />
+                Eligible for Return / Exchange
               </label>
             </div>
-          )}
 
-          <div><label className="label">Purchase Price</label><input className="input" type="number" value={form.purchasePrice} onChange={set('purchasePrice')} /></div>
-          <div><label className="label">Selling Price</label><input className="input" type="number" value={form.sellingPrice} onChange={set('sellingPrice')} /></div>
-          <div>
-            <label className="label">Discount (%)</label>
-            <input className="input" type="number" min="0" max="100" value={form.discountPercent} onChange={set('discountPercent')} />
+            {!isMobile && (
+              <>
+                <div>
+                  <label className="label">Expiry Date {requiresExpiry && <span className="text-red-500">*</span>}</label>
+                  <input className="input" type="date" value={form.expiryDate} onChange={set('expiryDate')} />
+                </div>
+                <div><label className="label">Batch No</label><input className="input" value={form.batchNo} onChange={set('batchNo')} /></div>
+                {requiresExpiry && !form.expiryDate && (
+                  <p className="col-span-2 text-xs text-red-500 flex items-center gap-1"><AlertTriangle size={13} /> Expiry date is mandatory for medicines.</p>
+                )}
+              </>
+            )}
           </div>
-          <div className="flex flex-col justify-end">
-            <span className="label">Discounted Price</span>
-            <div className="input bg-slate-50 dark:bg-slate-800 flex items-center font-semibold">{taka(discounted({ sellingPrice: +form.sellingPrice || 0, discountPercent: +form.discountPercent || 0 }))}</div>
-          </div>
+        ) : (
+          <div className="space-y-3">
+            {items.map((it, i) => (
+              <ItemBlock key={i} item={it} index={i} onChange={setItemField} onRemove={removeItemBlock} canRemove={items.length > 1} isMobile={isMobile} serialEnabled={serialEnabled} />
+            ))}
+            <button type="button" className="btn-ghost" onClick={addItemBlock}><Plus size={15} /> Add Item</button>
 
-          {form.trackSerial ? (
-            <div className="col-span-2 text-xs text-slate-500 bg-slate-50 dark:bg-slate-800 rounded-lg p-2">
-              Stock is managed automatically from the unit codes. {editId ? `Use the ${isMobile ? 'IMEI' : 'unit'} button (▥) in the list to add ${isMobile ? 'devices' : 'unit codes'}.` : 'Save first, then add unit codes from the list.'}
-            </div>
-          ) : (
-            <div><label className="label">Stock</label><input className="input" type="number" value={form.stock} onChange={set('stock')} /></div>
-          )}
-          <div><label className="label">Low Stock Alert</label><input className="input" type="number" value={form.lowStockAlert} onChange={set('lowStockAlert')} /></div>
-          <div className="flex items-end">
-            <label className="inline-flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={form.returnable !== false} onChange={setChk('returnable')} />
-              Eligible for Return / Exchange
-            </label>
-          </div>
-
-          {!isMobile && (
-            <>
-              <div>
-                <label className="label">Expiry Date {requiresExpiry && <span className="text-red-500">*</span>}</label>
-                <input className="input" type="date" value={form.expiryDate} onChange={set('expiryDate')} />
+            <div className="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-3">
+              <p className="text-sm font-semibold">Supplier / Dealer (optional)</p>
+              <p className="text-xs text-slate-400">Record which supplier/dealer these items came from — auto-creates a purchase entry visible on the Suppliers page. Leave blank to just add the product(s) with no purchase record.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Supplier / Dealer Name</label>
+                  <input className="input" list="supplier-names" value={supplier.name} onChange={(e) => setSupplier({ ...supplier, name: e.target.value })} placeholder="e.g. Anik Telecom" />
+                  <datalist id="supplier-names">{supplierList.map((s) => <option key={s._id} value={s.name} />)}</datalist>
+                </div>
+                <div><label className="label">Phone</label><input className="input" value={supplier.phone} onChange={(e) => setSupplier({ ...supplier, phone: e.target.value })} /></div>
               </div>
-              <div><label className="label">Batch No</label><input className="input" value={form.batchNo} onChange={set('batchNo')} /></div>
-              {requiresExpiry && !form.expiryDate && (
-                <p className="col-span-2 text-xs text-red-500 flex items-center gap-1"><AlertTriangle size={13} /> Expiry date is mandatory for medicines.</p>
+              {supplier.name.trim() && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div><label className="label">Reference / Memo No</label><input className="input" value={purchase.reference} onChange={(e) => setPurchase({ ...purchase, reference: e.target.value })} /></div>
+                  <div><label className="label">Note</label><input className="input" value={purchase.note} onChange={(e) => setPurchase({ ...purchase, note: e.target.value })} /></div>
+                  <div><label className="label">Paid Now</label><input className="input" type="number" value={purchase.paid} onChange={(e) => setPurchase({ ...purchase, paid: e.target.value })} /></div>
+                  <div><label className="label">Paid From</label>
+                    <select className="input" value={purchase.source} onChange={(e) => setPurchase({ ...purchase, source: e.target.value })}>
+                      <option value="cash">Cash</option><option value="bank">Bank</option><option value="bkash">bKash</option>
+                      <option value="nagad">Nagad</option><option value="rocket">Rocket</option><option value="card">Card</option>
+                    </select>
+                  </div>
+                </div>
               )}
-            </>
-          )}
-        </div>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {unitsFor && <UnitsModal product={unitsFor} isMobile={isMobile} onClose={() => setUnitsFor(null)} onChanged={load} />}
       {labelFor && <LabelPrintModal product={labelFor} business={business} isMobile={isMobile} onClose={() => setLabelFor(null)} onChanged={load} />}
+    </div>
+  );
+}
+
+// One product's fields inside the Add Product (create) flow — a repeatable block so
+// several items from the same supplier delivery can be entered in one go, each with
+// its own inline IMEI/serial box instead of a separate save-then-add-units step.
+function ItemBlock({ item, index, onChange, onRemove, canRemove, isMobile, serialEnabled }) {
+  const set = (k) => (e) => onChange(index, k, e.target.value);
+  const setChk = (k) => (e) => onChange(index, k, e.target.checked);
+  const requiresExpiry = isMedicineCat(item.category);
+
+  return (
+    <div className="border border-slate-200 dark:border-slate-700 rounded-lg p-3 relative">
+      {canRemove && (
+        <button type="button" className="absolute top-2 right-2 text-red-500" onClick={() => onRemove(index)} title="Remove item"><Trash2 size={15} /></button>
+      )}
+      <div className="grid grid-cols-2 gap-3 pr-6">
+        <div className="col-span-2"><label className="label">Name</label><input className="input" value={item.name} onChange={set('name')} placeholder={isMobile ? 'e.g. iPhone 15 Pro' : ''} /></div>
+        {serialEnabled && (
+          <div><label className="label">Barcode</label><input className="input font-mono" value={item.barcode || ''} onChange={set('barcode')} placeholder="Auto-generated on save" /></div>
+        )}
+        <div><label className="label">SKU / Product Code</label><input className="input" value={item.sku || ''} onChange={set('sku')} placeholder="Optional" /></div>
+        <div><label className="label">Category</label><input className="input" value={item.category} onChange={set('category')} /></div>
+        <div><label className="label">Unit</label><input className="input" value={item.unit} onChange={set('unit')} /></div>
+
+        {isMobile && (
+          <>
+            <div><label className="label">Brand</label><input className="input" value={item.brand} onChange={set('brand')} placeholder="Apple, Samsung..." /></div>
+            <div><label className="label">Storage (RAM/ROM)</label><input className="input" value={item.storage} onChange={set('storage')} placeholder="8GB/128GB" /></div>
+            <div><label className="label">Color</label><input className="input" value={item.color} onChange={set('color')} placeholder="Black" /></div>
+            <div><label className="label">Brand Warranty (months)</label><input className="input" type="number" min="0" value={item.warrantyBrandMonths} onChange={set('warrantyBrandMonths')} /></div>
+            <div><label className="label">Shop Warranty (months)</label><input className="input" type="number" min="0" value={item.warrantyShopMonths} onChange={set('warrantyShopMonths')} /></div>
+          </>
+        )}
+
+        {serialEnabled && (
+          <div className="flex items-end">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={!!item.trackSerial} onChange={setChk('trackSerial')} />
+              {isMobile ? 'Track by IMEI / Serial' : 'Track each unit with a unique code'}
+            </label>
+          </div>
+        )}
+
+        <div><label className="label">Purchase Price</label><input className="input" type="number" value={item.purchasePrice} onChange={set('purchasePrice')} /></div>
+        <div><label className="label">Selling Price</label><input className="input" type="number" value={item.sellingPrice} onChange={set('sellingPrice')} /></div>
+        <div>
+          <label className="label">Discount (%)</label>
+          <input className="input" type="number" min="0" max="100" value={item.discountPercent} onChange={set('discountPercent')} />
+        </div>
+        <div className="flex flex-col justify-end">
+          <span className="label">Discounted Price</span>
+          <div className="input bg-slate-50 dark:bg-slate-800 flex items-center font-semibold">{taka(discounted({ sellingPrice: +item.sellingPrice || 0, discountPercent: +item.discountPercent || 0 }))}</div>
+        </div>
+
+        {item.trackSerial ? (
+          <div className="col-span-2">
+            <label className="label">{isMobile ? 'IMEI / Serial (one per line)' : 'Unit Codes (one per line)'}</label>
+            <textarea className="input h-20 font-mono text-xs" value={item.imeis} onChange={set('imeis')} placeholder={isMobile ? '356789...\n356790...' : 'code-001\ncode-002'} />
+          </div>
+        ) : (
+          <div><label className="label">Stock</label><input className="input" type="number" value={item.stock} onChange={set('stock')} /></div>
+        )}
+        <div><label className="label">Low Stock Alert</label><input className="input" type="number" value={item.lowStockAlert} onChange={set('lowStockAlert')} /></div>
+        <div className="flex items-end">
+          <label className="inline-flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={item.returnable !== false} onChange={setChk('returnable')} />
+            Eligible for Return / Exchange
+          </label>
+        </div>
+
+        {!isMobile && (
+          <>
+            <div>
+              <label className="label">Expiry Date {requiresExpiry && <span className="text-red-500">*</span>}</label>
+              <input className="input" type="date" value={item.expiryDate} onChange={set('expiryDate')} />
+            </div>
+            <div><label className="label">Batch No</label><input className="input" value={item.batchNo} onChange={set('batchNo')} /></div>
+            {requiresExpiry && !item.expiryDate && (
+              <p className="col-span-2 text-xs text-red-500 flex items-center gap-1"><AlertTriangle size={13} /> Expiry date is mandatory for medicines.</p>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

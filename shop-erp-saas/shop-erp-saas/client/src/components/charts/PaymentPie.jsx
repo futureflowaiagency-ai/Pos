@@ -12,6 +12,7 @@ const COLORS = {
   card: '#4f46e5',
   due: '#ef4444',
   emi: '#0891b2',
+  split: '#64748b',
 };
 
 export default function PaymentPie({ data = [] }) {

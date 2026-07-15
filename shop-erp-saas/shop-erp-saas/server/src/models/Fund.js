@@ -1,12 +1,15 @@
 import mongoose from 'mongoose';
 
-// Capital / fund brought into the shop from outside (owner's own money, loans, etc.).
-// This is NOT income and NOT an expense — it only tops up a payment-method balance.
+// Capital / fund brought into the shop from outside (owner's own money, loans, etc.),
+// or later withdrawn back out (fully or partially). Neither direction is income or
+// an expense — it only tops up / draws down a payment-method balance.
 const fundSchema = new mongoose.Schema(
   {
     business: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
-    // which balance this fund lands in
+    // which balance this fund lands in / is taken from
     source: { type: String, enum: ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'], default: 'cash' },
+    // 'add' = capital brought in, 'withdraw' = (partial or full) capital taken back out
+    type: { type: String, enum: ['add', 'withdraw'], default: 'add' },
     amount: { type: Number, required: true, default: 0 },
     note: { type: String, default: '' },
     date: { type: Date, default: Date.now },

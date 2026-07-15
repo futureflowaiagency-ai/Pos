@@ -6,6 +6,8 @@ import { tenantFilter } from '../middleware/tenant.js';
 import { logActivity } from '../middleware/activityLogger.js';
 import Supplier from '../models/Supplier.js';
 import Purchase from '../models/Purchase.js';
+import Product from '../models/Product.js';
+import Sale from '../models/Sale.js';
 
 const TENDERS = ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'];
 
@@ -111,6 +113,47 @@ export const paySupplier = asyncHandler(async (req, res) => {
 
   await logActivity(req, { action: 'PAY_SUPPLIER', entity: 'Supplier', entityId: supplier._id, meta: { amount: amt } });
   ok(res, { payment, supplier }, 'Payment recorded');
+});
+
+// @route GET /api/suppliers/:id/products — per-product breakdown for one supplier:
+// how much of each product was bought from them, how many have sold (shop-wide,
+// since a sale doesn't record which supplier a unit came from), and live stock.
+export const supplierProductBreakdown = asyncHandler(async (req, res) => {
+  const supplier = await Supplier.findOne(tenantFilter(req, { _id: req.params.id }));
+  if (!supplier) throw new ApiError(404, 'Supplier not found');
+  const bId = new mongoose.Types.ObjectId(req.businessId);
+
+  const purchased = await Purchase.aggregate([
+    { $match: { business: bId, supplier: supplier._id, kind: 'purchase' } },
+    { $unwind: '$items' },
+    { $match: { 'items.product': { $ne: null } } },
+    { $group: { _id: '$items.product', name: { $last: '$items.name' }, purchasedQty: { $sum: '$items.qty' } } },
+    { $sort: { purchasedQty: -1 } },
+  ]);
+  if (!purchased.length) return ok(res, { supplier, products: [] });
+
+  const productIds = purchased.map((p) => p._id);
+  const [products, soldAgg] = await Promise.all([
+    Product.find(tenantFilter(req, { _id: { $in: productIds } })),
+    Sale.aggregate([
+      { $match: { business: bId } },
+      { $unwind: '$items' },
+      { $match: { 'items.product': { $in: productIds } } },
+      { $group: { _id: '$items.product', soldQty: { $sum: '$items.qty' } } },
+    ]),
+  ]);
+  const soldMap = Object.fromEntries(soldAgg.map((s) => [String(s._id), s.soldQty]));
+  const prodMap = Object.fromEntries(products.map((p) => [String(p._id), p]));
+
+  const rows = purchased.map((p) => ({
+    productId: p._id,
+    name: prodMap[String(p._id)]?.name || p.name,
+    purchasedQty: p.purchasedQty,
+    soldQty: soldMap[String(p._id)] || 0, // shop-wide sold qty for this product, not exclusively from this supplier's batch
+    currentStock: prodMap[String(p._id)]?.stock ?? null,
+  }));
+
+  ok(res, { supplier, products: rows });
 });
 
 // @route GET /api/suppliers/dashboard/summary — aggregate supplier financials (req 12)

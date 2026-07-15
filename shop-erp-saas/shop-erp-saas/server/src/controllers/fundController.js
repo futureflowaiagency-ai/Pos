@@ -19,19 +19,21 @@ export const getFunds = asyncHandler(async (req, res) => {
   ok(res, { funds, count: funds.length, total });
 });
 
-// @route POST /api/funds  — add capital into a payment-method balance
+// @route POST /api/funds  — add capital into a payment-method balance, or (type:'withdraw')
+// take part/all of previously-added capital back out. Neither is income or an expense.
 export const createFund = asyncHandler(async (req, res) => {
-  const { source = 'cash', amount, note = '', date } = req.body;
+  const { source = 'cash', type = 'add', amount, note = '', date } = req.body;
   if (!amount || Number(amount) <= 0) throw new ApiError(400, 'Amount must be greater than 0');
   const fund = await Fund.create({
     business: req.businessId,
     source,
+    type: type === 'withdraw' ? 'withdraw' : 'add',
     amount: Number(amount),
     note,
     date: date ? new Date(date) : new Date(),
     addedBy: req.user._id,
   });
-  await logActivity(req, { action: 'ADD_FUND', entity: 'Fund', entityId: fund._id });
+  await logActivity(req, { action: type === 'withdraw' ? 'WITHDRAW_FUND' : 'ADD_FUND', entity: 'Fund', entityId: fund._id });
   created(res, { fund });
 });
 

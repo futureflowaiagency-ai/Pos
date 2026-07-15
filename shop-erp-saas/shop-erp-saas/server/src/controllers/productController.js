@@ -4,6 +4,12 @@ import { ok, created } from '../utils/apiResponse.js';
 import { tenantFilter } from '../middleware/tenant.js';
 import { logActivity } from '../middleware/activityLogger.js';
 import Product from '../models/Product.js';
+import PhoneUnit from '../models/PhoneUnit.js';
+import Supplier from '../models/Supplier.js';
+import Purchase from '../models/Purchase.js';
+
+const TENDERS = ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'];
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // Generate a barcode value that's unique within the business.
 const genBarcodeValue = () => String(Date.now()).slice(-9) + String(Math.floor(Math.random() * 900 + 100));
@@ -58,6 +64,115 @@ export const createProduct = asyncHandler(async (req, res) => {
   const product = await Product.create({ ...req.body, barcode, business: req.businessId });
   await logActivity(req, { action: 'CREATE_PRODUCT', entity: 'Product', entityId: product._id, meta: { name: product.name } });
   created(res, { product });
+});
+
+// @route POST /api/products/batch-with-supplier
+// Add one or more products in one go, all received from the same supplier/dealer —
+// auto-creates (or reuses) the Supplier and records a single stock-in Purchase
+// linking every created product, so it shows up in the Supplier dashboard/ledger.
+// body: { supplierName, supplierPhone?, reference?, note?, paid?, source?,
+//         items:[{ ...productFields, imeis?:[{imei1,imei2,serial}] }] }
+export const createProductsWithSupplier = asyncHandler(async (req, res) => {
+  const { supplierName = '', supplierPhone = '', reference = '', note = '', paid = 0, source = 'cash', items = [] } = req.body;
+  if (!String(supplierName).trim()) throw new ApiError(400, 'Supplier / dealer name is required');
+  if (!items.length) throw new ApiError(400, 'At least one item is required');
+
+  // find-or-create the supplier (case-insensitive name match within this business)
+  let supplier = await Supplier.findOne(tenantFilter(req, { name: { $regex: `^${escapeRegex(String(supplierName).trim())}$`, $options: 'i' } }));
+  if (!supplier) {
+    supplier = await Supplier.create({ business: req.businessId, name: String(supplierName).trim(), phone: String(supplierPhone || '').trim() });
+  } else if (String(supplierPhone || '').trim() && !supplier.phone) {
+    supplier.phone = String(supplierPhone).trim();
+    await supplier.save();
+  }
+
+  // de-dupe IMEI/serial across the whole submitted batch before touching the DB
+  const allCodes = [];
+  for (const raw of items) {
+    if (!raw.trackSerial) continue;
+    for (const u of (raw.imeis || [])) {
+      const code = (u.imei1 || u.serial || '').trim();
+      if (code) allCodes.push(code);
+    }
+  }
+  const dupInBatch = allCodes.find((c, i) => allCodes.indexOf(c) !== i);
+  if (dupInBatch) throw new ApiError(400, `Duplicate IMEI/serial in this submission: ${dupInBatch}`);
+  if (allCodes.length) {
+    const existing = await PhoneUnit.findOne(tenantFilter(req, { $or: [{ imei1: { $in: allCodes } }, { serial: { $in: allCodes } }] }));
+    if (existing) throw new ApiError(409, `IMEI/serial already exists: ${existing.imei1 || existing.serial}`);
+  }
+
+  const createdProducts = [];
+  const purchaseItems = [];
+  let total = 0;
+
+  for (const raw of items) {
+    const name = String(raw.name || '').trim();
+    if (!name) throw new ApiError(400, 'Every item needs a name');
+    const isMedicine = /medicine|medicin|drug|pharma/i.test(raw.category || '');
+    if (isMedicine && !raw.expiryDate) throw new ApiError(400, `Expiry date is required for medicine: ${name}`);
+
+    let barcode = String(raw.barcode || '').trim();
+    if (barcode) {
+      const clash = await Product.findOne(tenantFilter(req, { barcode }));
+      if (clash) throw new ApiError(409, `Barcode already in use: ${barcode}`);
+    } else {
+      barcode = await uniqueBarcode(req);
+    }
+
+    const trackSerial = !!raw.trackSerial;
+    const imeis = trackSerial ? (raw.imeis || []).filter((u) => (u.imei1 || u.serial || '').trim()) : [];
+    if (trackSerial && imeis.length === 0) throw new ApiError(400, `Add at least one IMEI/serial for ${name}`);
+    const qty = trackSerial ? imeis.length : Math.max(0, Number(raw.stock || 0));
+
+    const product = await Product.create({
+      ...raw,
+      name, barcode,
+      business: req.businessId,
+      trackSerial,
+      stock: trackSerial ? 0 : qty, // synced from units below when trackSerial
+      warrantyBrandMonths: Number(raw.warrantyBrandMonths) || 0,
+      warrantyShopMonths: Number(raw.warrantyShopMonths) || 0,
+      purchasePrice: Number(raw.purchasePrice) || 0,
+      sellingPrice: Number(raw.sellingPrice) || 0,
+      discountPercent: Number(raw.discountPercent) || 0,
+      lowStockAlert: Number(raw.lowStockAlert) || 5,
+    });
+    createdProducts.push(product);
+
+    if (trackSerial && imeis.length) {
+      await PhoneUnit.insertMany(imeis.map((u) => ({
+        business: req.businessId, product: product._id, status: 'in_stock',
+        imei1: (u.imei1 || '').trim(), imei2: (u.imei2 || '').trim(), serial: (u.serial || '').trim(),
+      })));
+      product.stock = imeis.length;
+      await product.save();
+    }
+
+    const unitCost = Number(raw.purchasePrice) || 0;
+    total += unitCost * qty;
+    purchaseItems.push({ product: product._id, name: product.name, qty, unitCost });
+  }
+
+  const paidAmt = Math.max(0, Math.min(Number(paid || 0), total));
+  const purchase = await Purchase.create({
+    business: req.businessId,
+    supplier: supplier._id,
+    kind: 'purchase',
+    reference, note,
+    items: purchaseItems,
+    total,
+    paid: paidAmt,
+    due: Math.max(0, total - paidAmt),
+    source: TENDERS.includes(source) ? source : 'cash',
+    createdBy: req.user._id,
+  });
+  supplier.totalPurchase += total;
+  supplier.totalPaid += paidAmt;
+  await supplier.save();
+
+  await logActivity(req, { action: 'CREATE_PRODUCTS_WITH_SUPPLIER', entity: 'Supplier', entityId: supplier._id, meta: { products: createdProducts.length, total } });
+  created(res, { products: createdProducts, supplier, purchase });
 });
 
 // @route PUT /api/products/:id

@@ -26,6 +26,12 @@ const saleItemSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// One tender line of a (possibly split) payment, e.g. { method: 'bkash', amount: 2000 }
+const paymentLineSchema = new mongoose.Schema(
+  { method: { type: String, enum: ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'], default: 'cash' }, amount: { type: Number, default: 0 } },
+  { _id: false }
+);
+
 const saleSchema = new mongoose.Schema(
   {
     business: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', required: true, index: true },
@@ -41,11 +47,15 @@ const saleSchema = new mongoose.Schema(
     due: { type: Number, default: 0 },
     profit: { type: Number, default: 0 },
     // classification / badge: becomes 'due' when any due remains (drives the DUE badge)
-    // 'bank' & 'rocket' added; 'emi' kept for back-compat (EMI-created sales) but not selectable in POS
-    paymentMethod: { type: String, enum: ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card', 'due', 'emi'], default: 'cash' },
+    // 'bank' & 'rocket' added; 'split' = multiple tenders used; 'emi' kept for back-compat
+    paymentMethod: { type: String, enum: ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card', 'due', 'emi', 'split'], default: 'cash' },
     // actual tender used for the PAID portion (kept even when paymentMethod is 'due')
-    // — this is what the dashboard balance engine attributes money-in to.
+    // — legacy single-tender field; still set (to the first tender) when `payments` is
+    // used, but the balance engine prefers `payments` when it's non-empty.
     paidVia: { type: String, enum: ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'], default: 'cash' },
+    // multi-tender breakdown of the paid portion, e.g. bKash 2000 + Card 1000 + Cash 3000.
+    // Empty for older/legacy single-tender sales — those fall back to paid+paidVia.
+    payments: { type: [paymentLineSchema], default: [] },
     soldBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     // true once every line item has been fully returned (req 14)
     returned: { type: Boolean, default: false },

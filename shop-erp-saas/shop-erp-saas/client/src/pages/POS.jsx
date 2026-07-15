@@ -48,8 +48,9 @@ export default function POS() {
   const [pastCustomer, setPastCustomer] = useState(null);
   const [pastSales, setPastSales] = useState([]);
   const [discount, setDiscount] = useState(0);
-  const [paid, setPaid] = useState(0);
-  const [method, setMethod] = useState('cash');
+  // Split/multi-tender payment: one or more { method, amount } rows (req: pay
+  // part bKash, part card, part cash, etc. in a single sale).
+  const [payments, setPayments] = useState([{ method: 'cash', amount: '' }]);
   const [lastSale, setLastSale] = useState(null);
   const [showPrint, setShowPrint] = useState(false);
   // hold-cart state
@@ -162,11 +163,18 @@ export default function POS() {
     return { ...i, qty: q };
   }));
   const removeItem = (key) => setCart((c) => c.filter((i) => lineKey(i) !== key));
-  const resetSale = () => { setCart([]); setDiscount(0); setPaid(0); setCustPhone(''); setCustName(''); setMatchedCustomer(null); setCustomerNid(''); };
+  const resetSale = () => { setCart([]); setDiscount(0); setPayments([{ method: 'cash', amount: '' }]); setCustPhone(''); setCustName(''); setMatchedCustomer(null); setCustomerNid(''); };
 
   const subTotal = cart.reduce((s, i) => s + unitPrice(i) * Number(i.qty || 0), 0);
   const total = Math.max(0, subTotal - Number(discount || 0));
-  const due = Math.max(0, total - Number(paid || 0));
+  const paidSum = payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const due = Math.max(0, total - paidSum);
+
+  // ---------- split-payment rows ----------
+  const setPaymentRow = (i, k, v) => setPayments((rows) => rows.map((r, idx) => idx === i ? { ...r, [k]: v } : r));
+  const addPaymentRow = () => setPayments((rows) => [...rows, { method: 'cash', amount: '' }]);
+  const removePaymentRow = (i) => setPayments((rows) => rows.length > 1 ? rows.filter((_, idx) => idx !== i) : rows);
+  const fillRemaining = (i) => setPaymentRow(i, 'amount', String(Math.max(0, total - (paidSum - (Number(payments[i]?.amount) || 0)))));
 
   // ---------- hold / resume ----------
   const holdCart = () => {
@@ -175,7 +183,7 @@ export default function POS() {
       id: Date.now().toString(),
       heldAt: new Date().toISOString(),
       customerName: custName || custPhone || 'No customer',
-      custPhone, custName, customerNid, discount, paid, method,
+      custPhone, custName, customerNid, discount, payments,
       itemCount: cart.reduce((s, i) => s + i.qty, 0),
       cart,
     };
@@ -188,7 +196,9 @@ export default function POS() {
   const resumeHold = (h) => {
     if (cart.length && !confirm('Resuming will replace the current cart. Continue?')) return;
     setCart(h.cart); setCustPhone(h.custPhone || ''); setCustName(h.custName || ''); setCustomerNid(h.customerNid || '');
-    setDiscount(h.discount || 0); setPaid(h.paid || 0); setMethod(h.method || 'cash');
+    setDiscount(h.discount || 0);
+    // back-compat: older held bills stored a single paid+method instead of payments[]
+    setPayments(h.payments?.length ? h.payments : [{ method: h.method || 'cash', amount: h.paid || '' }]);
     const next = holds.filter((x) => x.id !== h.id);
     setHolds(next); writeHolds(heldKey, next);
     setHoldsOpen(false);
@@ -219,12 +229,14 @@ export default function POS() {
     if (!cart.length) return toast.error('Cart is empty');
     if (cart.some((i) => !i.unitId && Number(i.qty) <= 0)) return toast.error('Enter a valid quantity');
     if (!custPhone.trim() || !custName.trim()) return toast.error('Customer name and phone are required');
+    const cleanPayments = payments.map((p) => ({ method: p.method, amount: Number(p.amount) || 0 })).filter((p) => p.amount > 0);
+    // Nothing typed in any row → default to paying the full total via the first selected method.
+    const sendPayments = cleanPayments.length ? cleanPayments : [{ method: payments[0]?.method || 'cash', amount: total }];
     try {
       const { data } = await api.post('/sales', {
         items: cart.map((i) => i.unitId ? { product: i._id, qty: 1, unit: i.unitId } : { product: i._id, qty: Number(i.qty) }),
         discount: Number(discount || 0),
-        paid: Number(paid || 0) || total,
-        paymentMethod: method,
+        payments: sendPayments,
         customer: matchedCustomer?._id || null,
         customerName: custName.trim(),
         customerPhone: custPhone.trim(),
@@ -384,21 +396,33 @@ export default function POS() {
               <input className="input" value={customerNid} onChange={(e) => setCustomerNid(e.target.value)} placeholder="NID number (for warranty / records)" />
             </div>
           )}
-          <div className="grid grid-cols-2 gap-2">
-            <div><label className="label">Discount</label><input className="input" type="number" value={discount} onChange={(e) => setDiscount(e.target.value)} /></div>
-            <div><label className="label">Paid</label><input className="input" type="number" value={paid} onChange={(e) => setPaid(e.target.value)} placeholder={total} /></div>
-          </div>
+          <div><label className="label">Discount</label><input className="input" type="number" value={discount} onChange={(e) => setDiscount(e.target.value)} /></div>
+
           <div>
-            <label className="label">Payment Method</label>
-            <select className="input" value={method} onChange={(e) => setMethod(e.target.value)}>
-              <option value="cash">Cash</option><option value="bank">Bank</option>
-              <option value="bkash">bKash</option><option value="nagad">Nagad</option>
-              <option value="rocket">Rocket</option><option value="card">Card</option>
-            </select>
+            <div className="flex items-center justify-between">
+              <label className="label mb-0">Payment (split across multiple methods if needed)</label>
+            </div>
+            <div className="space-y-2">
+              {payments.map((p, i) => (
+                <div key={i} className="flex gap-1.5 items-center">
+                  <select className="input !w-28 shrink-0" value={p.method} onChange={(e) => setPaymentRow(i, 'method', e.target.value)}>
+                    <option value="cash">Cash</option><option value="bank">Bank</option>
+                    <option value="bkash">bKash</option><option value="nagad">Nagad</option>
+                    <option value="rocket">Rocket</option><option value="card">Card</option>
+                  </select>
+                  <input className="input" type="number" placeholder={i === 0 ? String(total) : '0'} value={p.amount} onChange={(e) => setPaymentRow(i, 'amount', e.target.value)} />
+                  <button type="button" className="btn-ghost p-1.5 shrink-0" title="Fill remaining" onClick={() => fillRemaining(i)}>=</button>
+                  {payments.length > 1 && <button type="button" className="text-red-500 p-1 shrink-0" onClick={() => removePaymentRow(i)}><Trash2 size={14} /></button>}
+                </div>
+              ))}
+            </div>
+            <button type="button" className="btn-ghost mt-1.5 !py-1 text-xs" onClick={addPaymentRow}><Plus size={13} /> Add payment method</button>
           </div>
+
           <div className="flex justify-between"><span>Subtotal</span><span>{taka(subTotal)}</span></div>
           <div className="flex justify-between"><span>Discount (flat)</span><span>-{taka(Number(discount || 0))}</span></div>
           <div className="flex justify-between font-bold text-base"><span>Total</span><span>{taka(total)}</span></div>
+          <div className="flex justify-between"><span>Paid</span><span>{taka(paidSum)}</span></div>
           <div className="flex justify-between text-red-500"><span>Due</span><span>{taka(due)}</span></div>
           <div className="grid grid-cols-2 gap-2 mt-2">
             <button className="btn-ghost" onClick={holdCart}><PauseCircle size={16} /> Hold</button>
