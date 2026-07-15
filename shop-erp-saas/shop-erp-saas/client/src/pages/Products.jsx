@@ -35,6 +35,10 @@ export default function Products() {
   const serialEnabled = !isPharmacy;
   const [products, setProducts] = useState([]);
   const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  // every category ever seen for this business — only grows, so the filter/combobox
+  // options don't shrink away just because the list is currently filtered
+  const [categoryOptions, setCategoryOptions] = useState([]);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState(empty); // used for Edit only
   const [editId, setEditId] = useState(null);
@@ -50,10 +54,11 @@ export default function Products() {
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
-    const { data } = await api.get('/products', { params: { search } });
+    const { data } = await api.get('/products', { params: { search, category: categoryFilter || undefined } });
     setProducts(data.data.products);
+    setCategoryOptions((prev) => [...new Set([...prev, ...data.data.products.map((p) => p.category).filter(Boolean)])].sort());
   };
-  useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [search]);
+  useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [search, categoryFilter]);
   useEffect(() => { api.get('/suppliers').then(({ data }) => setSupplierList(data.data.suppliers)).catch(() => {}); }, []);
 
   // Scan/enter a barcode: if it matches an existing product, don't create a new
@@ -86,7 +91,7 @@ export default function Products() {
     setSupplier(emptySupplier); setPurchase(emptyPurchase);
     setEditId(null); setModal(true);
   };
-  const openEdit = (p) => { setForm({ ...empty, ...p, expiryDate: toDateInput(p.expiryDate) }); setEditId(p._id); setModal(true); };
+  const openEdit = (p) => { setForm({ ...empty, ...p, supplier: p.supplier?._id || '', expiryDate: toDateInput(p.expiryDate) }); setEditId(p._id); setModal(true); };
 
   const requiresExpiry = isMedicineCat(form.category);
 
@@ -195,6 +200,7 @@ export default function Products() {
       <div>
         <span className="font-medium">{r.name}</span>
         {isMobile && variantLabel(r) && <div className="text-xs text-slate-400">{variantLabel(r)}</div>}
+        {r.supplier?.name && <div className="text-xs text-brand-500">Supplier: {r.supplier.name}</div>}
       </div>
     )},
     { key: 'category', label: 'Category' },
@@ -237,6 +243,10 @@ export default function Products() {
           <Search size={18} className="absolute left-3 top-2.5 text-slate-400" />
           <input className="input pl-10" placeholder={serialEnabled ? 'Search name / SKU / barcode...' : 'Search name / SKU...'} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
+        <select className="input sm:!w-52" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+          <option value="">All Categories</option>
+          {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
         {serialEnabled && (
           <div className="relative flex-1 max-w-sm">
             <ScanLine size={18} className="absolute left-3 top-2.5 text-brand-500" />
@@ -252,6 +262,8 @@ export default function Products() {
       </div>
 
       <DataTable columns={columns} rows={products} />
+      {/* shared combobox options for the Category field (Edit form + create Item blocks) */}
+      <datalist id="category-options">{categoryOptions.map((c) => <option key={c} value={c} />)}</datalist>
 
       <Modal open={modal} onClose={() => setModal(false)} title={editId ? 'Edit Product' : 'Add Product'} size="lg"
         footer={<>
@@ -269,8 +281,18 @@ export default function Products() {
               </div>
             )}
             <div><label className="label">SKU / Product Code</label><input className="input" value={form.sku || ''} onChange={set('sku')} placeholder="Optional" /></div>
-            <div><label className="label">Category</label><input className="input" value={form.category} onChange={set('category')} /></div>
+            <div>
+              <label className="label">Category</label>
+              <input className="input" list="category-options" value={form.category} onChange={set('category')} />
+            </div>
             <div><label className="label">Unit</label><input className="input" value={form.unit} onChange={set('unit')} /></div>
+            <div className="col-span-2">
+              <label className="label">Supplier / Dealer</label>
+              <select className="input" value={form.supplier || ''} onChange={set('supplier')}>
+                <option value="">— None —</option>
+                {supplierList.map((s) => <option key={s._id} value={s._id}>{s.name}</option>)}
+              </select>
+            </div>
 
             {isMobile && (
               <>
@@ -391,7 +413,7 @@ function ItemBlock({ item, index, onChange, onRemove, canRemove, isMobile, seria
           <div><label className="label">Barcode</label><input className="input font-mono" value={item.barcode || ''} onChange={set('barcode')} placeholder="Auto-generated on save" /></div>
         )}
         <div><label className="label">SKU / Product Code</label><input className="input" value={item.sku || ''} onChange={set('sku')} placeholder="Optional" /></div>
-        <div><label className="label">Category</label><input className="input" value={item.category} onChange={set('category')} /></div>
+        <div><label className="label">Category</label><input className="input" list="category-options" value={item.category} onChange={set('category')} /></div>
         <div><label className="label">Unit</label><input className="input" value={item.unit} onChange={set('unit')} /></div>
 
         {isMobile && (

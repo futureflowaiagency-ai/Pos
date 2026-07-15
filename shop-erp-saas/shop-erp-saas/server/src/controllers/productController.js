@@ -33,7 +33,7 @@ export const getProducts = asyncHandler(async (req, res) => {
   ];
   if (category) q.category = category;
 
-  let products = await Product.find(q).sort('-createdAt');
+  let products = await Product.find(q).sort('-createdAt').populate('supplier', 'name');
   if (lowStock === 'true') products = products.filter((p) => p.stock <= p.lowStockAlert);
   ok(res, { products, count: products.length });
 });
@@ -130,6 +130,7 @@ export const createProductsWithSupplier = asyncHandler(async (req, res) => {
       name, barcode,
       business: req.businessId,
       trackSerial,
+      supplier: supplier._id,
       stock: trackSerial ? 0 : qty, // synced from units below when trackSerial
       warrantyBrandMonths: Number(raw.warrantyBrandMonths) || 0,
       warrantyShopMonths: Number(raw.warrantyShopMonths) || 0,
@@ -183,11 +184,16 @@ export const updateProduct = asyncHandler(async (req, res) => {
     const clash = await Product.findOne(tenantFilter(req, { barcode, _id: { $ne: req.params.id } }));
     if (clash) throw new ApiError(409, 'Barcode already in use by another product');
   }
+  // an empty string means "no supplier" — cast that to null so Mongoose doesn't
+  // try (and fail) to interpret '' as an ObjectId
+  const body = { ...req.body };
+  if ('supplier' in body && !body.supplier) body.supplier = null;
+
   const product = await Product.findOneAndUpdate(
     tenantFilter(req, { _id: req.params.id }),
-    req.body,
+    body,
     { new: true, runValidators: true }
-  );
+  ).populate('supplier', 'name');
   if (!product) throw new ApiError(404, 'Product not found');
   await logActivity(req, { action: 'UPDATE_PRODUCT', entity: 'Product', entityId: product._id });
   ok(res, { product }, 'Product updated');

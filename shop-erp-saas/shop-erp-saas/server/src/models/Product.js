@@ -11,6 +11,10 @@ const productSchema = new mongoose.Schema(
     barcode: { type: String, trim: true, default: '', index: true },
     category: { type: String, trim: true, default: 'General' },
     unit: { type: String, default: 'pcs' },
+    // which supplier/dealer this product came from — so the shop can see whose
+    // stock is whose. Optional: set automatically by the Add-Product-with-supplier
+    // flow, or editable directly on any product afterwards.
+    supplier: { type: mongoose.Schema.Types.ObjectId, ref: 'Supplier', default: null },
     purchasePrice: { type: Number, required: true, default: 0 },
     sellingPrice: { type: Number, required: true, default: 0 },
     // discount as a percentage (%) of selling price
