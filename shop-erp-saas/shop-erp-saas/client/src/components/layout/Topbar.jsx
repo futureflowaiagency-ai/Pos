@@ -8,7 +8,7 @@ export default function Topbar({ onMenu }) {
   const { user, logout } = useAuth();
   const { lang, toggleLang, t } = useLang();
   return (
-    <header className="no-print sticky top-0 z-30 flex items-center justify-between px-4 h-16 bg-white/80 dark:bg-slate-800/80 backdrop-blur border-b border-slate-200 dark:border-slate-700">
+    <header className="no-print sticky top-0 z-30 flex items-center justify-between px-4 h-16 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
       <button onClick={onMenu} className="lg:hidden btn-ghost p-2"><Menu size={20} /></button>
       <div className="flex-1" />
       <div className="flex items-center gap-2">
