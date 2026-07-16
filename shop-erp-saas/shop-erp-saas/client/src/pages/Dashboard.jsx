@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { DollarSign, TrendingUp, TrendingDown, Package, AlertTriangle, ShoppingBag, Users, Trophy, Receipt, Activity, Sparkles, Banknote, Landmark, Smartphone, Wallet, CreditCard, Wrench, CalendarClock } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, Package, AlertTriangle, ShoppingBag, Users, Trophy, Receipt, Activity, Sparkles, Banknote, Landmark, Smartphone, Wallet, CreditCard, Wrench, CalendarClock, PackageX } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios.js';
 import StatCard from '../components/ui/StatCard.jsx';
@@ -52,7 +52,7 @@ export default function Dashboard() {
   const genAiSummary = async () => {
     setAiLoading(true);
     try {
-      const { data: res } = await api.post('/dashboard/ai-summary', { summary: s, topProducts: data.topProducts, lang });
+      const { data: res } = await api.post('/dashboard/ai-summary', { summary: s, topProducts: data.topProducts, slowMoving: data.slowMoving, lang });
       setAiText(res.data.summary);
     } catch (e) { toast.error(e.response?.data?.message || 'AI error'); }
     setAiLoading(false);
@@ -127,16 +127,16 @@ export default function Dashboard() {
         <StatCard icon={Users} label="Employees" value={s.employeesCount} accent="brand" />
       </div>
 
-      {/* AI Summary */}
+      {/* AI Summary + Suggestions */}
       <div className="card p-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <h3 className="font-semibold flex items-center gap-2"><Sparkles size={18} className="text-brand-600" /> AI Business Summary</h3>
+          <h3 className="font-semibold flex items-center gap-2"><Sparkles size={18} className="text-brand-600" /> AI Business Summary &amp; Suggestions</h3>
           <button className="btn-ghost" disabled={aiLoading} onClick={genAiSummary}>
             <Sparkles size={15} /> {aiLoading ? 'Analyzing…' : aiText ? 'Regenerate' : 'Generate summary'}
           </button>
         </div>
         <p className="text-sm text-slate-600 dark:text-slate-300 mt-3 leading-relaxed whitespace-pre-line">
-          {aiText || 'Click “Generate summary” for an AI insight on this month’s performance (uses your own AI key from Marketing → Integrations).'}
+          {aiText || 'Click "Generate summary" for an AI insight on this month\'s performance plus concrete suggestions to boost sales, based on your top sellers and slow-moving stock (uses your own AI key from Marketing → Integrations).'}
         </p>
       </div>
 
@@ -146,10 +146,10 @@ export default function Dashboard() {
         <PaymentPie data={data.paymentBreakdown} />
       </div>
 
-      {/* Top sellers + Recent orders + Low stock */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      {/* Top sellers vs slow-moving / dead stock */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="card p-4">
-          <h3 className="font-semibold mb-3 flex items-center gap-2"><Trophy size={18} className="text-amber-500" /> Top Selling Products</h3>
+          <h3 className="font-semibold mb-3 flex items-center gap-2"><Trophy size={18} className="text-amber-500" /> Top Selling Products <span className="text-xs font-normal text-slate-400">(this month)</span></h3>
           <DataTable
             columns={[
               { key: '_id', label: 'Product' },
@@ -161,6 +161,23 @@ export default function Dashboard() {
           />
         </div>
 
+        <div className="card p-4">
+          <h3 className="font-semibold mb-3 flex items-center gap-2"><PackageX size={18} className="text-red-500" /> Slow-Moving / Dead Stock <span className="text-xs font-normal text-slate-400">(last 90 days)</span></h3>
+          <DataTable
+            columns={[
+              { key: 'name', label: 'Product' },
+              { key: 'qtySold', label: 'Sold', className: 'text-right', render: (r) => <span className={r.qtySold === 0 ? 'text-red-500 font-semibold' : ''}>{r.qtySold}</span> },
+              { key: 'stock', label: 'Stock', className: 'text-right' },
+              { key: 'lastSoldAt', label: 'Last Sold', render: (r) => r.daysSinceLastSale != null ? `${r.daysSinceLastSale}d ago` : <span className="text-red-500">Never</span> },
+            ]}
+            rows={data.slowMoving}
+            empty="No slow-moving stock 🎉"
+          />
+        </div>
+      </div>
+
+      {/* Recent orders + Low stock */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="card p-4">
           <h3 className="font-semibold mb-3 flex items-center gap-2"><Receipt size={18} className="text-brand-600" /> Recent Orders <span className="text-xs font-normal text-slate-400">(click a row for details)</span></h3>
           <DataTable

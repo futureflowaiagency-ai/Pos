@@ -41,7 +41,9 @@ export const dashboardSummary = asyncHandler(async (req, res) => {
   const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
 
-  const [salesAgg, todayAgg, expenseAgg, products, dueAgg, employeesCount, topProducts, recentOrders, paymentAgg, recentActivities, periodSalesAgg, periodExpenseAgg, balances, periodServiceAgg, activeEmis] = await Promise.all([
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
+  const [salesAgg, todayAgg, expenseAgg, products, dueAgg, employeesCount, topProducts, recentOrders, paymentAgg, recentActivities, periodSalesAgg, periodExpenseAgg, balances, periodServiceAgg, activeEmis, recentSalesByProduct] = await Promise.all([
     Sale.aggregate([
       { $match: { business: bId, createdAt: { $gte: startOfMonth } } },
       { $group: { _id: null, revenue: { $sum: '$total' }, profit: { $sum: '$profit' }, count: { $sum: 1 } } },
@@ -104,6 +106,14 @@ export const dashboardSummary = asyncHandler(async (req, res) => {
     ]),
     // Active EMI plans — summed in JS (uses the `balance` virtual) for EMI Receivable (req 10)
     Installment.find({ business: bId, status: 'active' }),
+    // Qty sold + last-sold date per product over the last 90 days — feeds the
+    // slow-moving/dead-stock box (products barely selling despite being in stock)
+    Sale.aggregate([
+      { $match: { business: bId, createdAt: { $gte: ninetyDaysAgo } } },
+      { $unwind: '$items' },
+      { $match: { 'items.product': { $ne: null } } },
+      { $group: { _id: '$items.product', qtySold: { $sum: '$items.qty' }, lastSoldAt: { $max: '$createdAt' } } },
+    ]),
   ]);
 
   const monthRevenue = salesAgg[0]?.revenue || 0;
@@ -114,6 +124,27 @@ export const dashboardSummary = asyncHandler(async (req, res) => {
   const periodRevenue = periodSalesAgg[0]?.revenue || 0;
   const periodProfit = periodSalesAgg[0]?.profit || 0;
   const periodExpense = periodExpenseAgg[0]?.total || 0;
+
+  // Slow-moving / dead stock: in-stock products (added >14 days ago, so genuinely
+  // new arrivals aren't unfairly flagged) ranked by the least sold in the last 90
+  // days — zero-sold, longest-sitting items rise to the top.
+  const soldMap = new Map(recentSalesByProduct.map((s) => [String(s._id), s]));
+  const fourteenDaysAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
+  const slowMoving = products
+    .filter((p) => p.stock > 0 && new Date(p.createdAt).getTime() <= fourteenDaysAgo)
+    .map((p) => {
+      const s = soldMap.get(String(p._id));
+      return {
+        _id: p._id,
+        name: p.name,
+        stock: p.stock,
+        qtySold: s?.qtySold || 0,
+        lastSoldAt: s?.lastSoldAt || null,
+        daysSinceLastSale: s?.lastSoldAt ? Math.floor((Date.now() - new Date(s.lastSoldAt).getTime()) / (24 * 60 * 60 * 1000)) : null,
+      };
+    })
+    .sort((a, b) => a.qtySold - b.qtySold || b.stock - a.stock)
+    .slice(0, 8);
 
   ok(res, {
     summary: {
@@ -153,6 +184,7 @@ export const dashboardSummary = asyncHandler(async (req, res) => {
     },
     lowStockProducts: lowStock.slice(0, 8),
     topProducts,
+    slowMoving,
     recentOrders,
     paymentBreakdown: paymentAgg,
     recentActivities: recentActivities.map((a) => ({
@@ -170,11 +202,17 @@ export const aiSummary = asyncHandler(async (req, res) => {
   const ai = settings?.ai ? { ...settings.ai.toObject(), apiKey: decryptSecret(settings.ai.apiKey) } : null;
   if (!ai?.apiKey && !hasCentralAI()) throw new ApiError(400, 'AI is not configured. Add your AI API key in Marketing → Integrations & Keys first');
 
-  const { summary = {}, topProducts = [], lang = 'en' } = req.body;
+  const { summary = {}, topProducts = [], slowMoving = [], lang = 'en' } = req.body;
   const top = topProducts.slice(0, 5).map((p) => `${p._id} (${p.qty} sold)`).join(', ') || 'none yet';
+  const slow = slowMoving.slice(0, 6)
+    .map((p) => `${p.name} (${p.qtySold} sold in 90d, ${p.stock} still in stock${p.daysSinceLastSale != null ? `, last sold ${p.daysSinceLastSale}d ago` : ', never sold'})`)
+    .join('; ') || 'none — no slow-moving stock right now';
   const prompt = [
-    'You are a concise business analyst for a small shop. Based on the numbers below, write a short, friendly summary (3-4 sentences max) highlighting how the business is doing this month and ONE practical suggestion. Plain text only, no markdown, no headings.',
-    lang === 'bn' ? 'Write the entire summary in Bengali (Bangla).' : '',
+    'You are a concise retail business analyst for a small shop. Based on the numbers below, respond in exactly two parts:',
+    '1) A 2-3 sentence plain summary of how the business is doing this month.',
+    '2) A line starting exactly with "Suggestions:" followed by 2-3 short, concrete, actionable suggestions to increase sales — specifically reference the slow-moving products by name (e.g. bundle them with a top seller, run a discount, feature them at checkout, stop reordering them) and build on what is already working (the top sellers).',
+    'Plain text only, no markdown, no asterisks, no numbered/bulleted lists — just short sentences separated by periods.',
+    lang === 'bn' ? 'Write the entire response in Bengali (Bangla).' : '',
     '',
     `This month revenue: ${summary.monthRevenue ?? 0}`,
     `Net profit: ${summary.netProfit ?? 0} (expenses: ${summary.monthExpense ?? 0})`,
@@ -183,9 +221,10 @@ export const aiSummary = asyncHandler(async (req, res) => {
     `Total customer due: ${summary.totalDue ?? 0}`,
     `Low-stock products: ${summary.lowStockCount ?? 0}`,
     `Top sellers: ${top}`,
+    `Slow-moving / dead stock: ${slow}`,
   ].join('\n');
 
-  const text = await generateText(ai, prompt, 500);
+  const text = await generateText(ai, prompt, 600);
   ok(res, { summary: text });
 });
 
