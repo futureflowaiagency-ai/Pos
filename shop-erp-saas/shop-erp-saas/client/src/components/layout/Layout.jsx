@@ -3,7 +3,6 @@ import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar.jsx';
 import Topbar from './Topbar.jsx';
 import Footer from './Footer.jsx';
-import WhatsAppButton from './WhatsAppButton.jsx';
 
 export default function Layout() {
   const [open, setOpen] = useState(false);
@@ -17,7 +16,6 @@ export default function Layout() {
         </main>
         <Footer />
       </div>
-      <WhatsAppButton />
     </div>
   );
 }

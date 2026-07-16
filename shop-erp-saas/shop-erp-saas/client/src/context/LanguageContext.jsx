@@ -53,7 +53,7 @@ const bn = {
   'Print purchase report': 'ক্রয় রিপোর্ট প্রিন্ট', 'Purchase Report': 'ক্রয় রিপোর্ট',
   'Sales Report': 'বিক্রয় রিপোর্ট', 'Salary Slip': 'বেতন স্লিপ', 'Service Invoice': 'সার্ভিস ইনভয়েস',
   'Due Receipt': 'বাকি রসিদ', 'Employee Profile': 'কর্মচারী প্রোফাইল',
-  'WhatsApp Support': 'হোয়াটসঅ্যাপ সাপোর্ট', 'Add at least one item': 'অন্তত একটি আইটেম যোগ করুন',
+  'Add at least one item': 'অন্তত একটি আইটেম যোগ করুন',
 
   // ---- Table columns / field labels ----
   Action: 'অ্যাকশন', Amount: 'পরিমাণ', Audience: 'অডিয়েন্স', Balance: 'ব্যালেন্স', Bill: 'বিল',
