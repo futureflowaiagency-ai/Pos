@@ -5,9 +5,10 @@ import {
 } from '../controllers/supplierController.js';
 import { protect } from '../middleware/auth.js';
 import { requireBusiness } from '../middleware/tenant.js';
+import { requireModule } from '../middleware/permissions.js';
 
 const router = Router();
-router.use(protect, requireBusiness);
+router.use(protect, requireBusiness, requireModule('suppliers'));
 
 router.route('/').get(getSuppliers).post(createSupplier);
 router.get('/dashboard/summary', supplierDashboard);

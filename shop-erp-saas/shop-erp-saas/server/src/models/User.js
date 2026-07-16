@@ -11,6 +11,9 @@ const userSchema = new mongoose.Schema(
     // owner = shop owner (tenant admin), staff = limited business user
     role: { type: String, enum: ['superadmin', 'owner', 'staff'], default: 'owner' },
     business: { type: mongoose.Schema.Types.ObjectId, ref: 'Business', default: null },
+    // which dashboard modules a 'staff' user can access (owner sets this per-employee);
+    // owner/superadmin always have full access regardless of this list
+    permissions: { type: [String], default: [] },
     preferences: {
       theme: { type: String, enum: ['light', 'dark'], default: 'light' },
     },

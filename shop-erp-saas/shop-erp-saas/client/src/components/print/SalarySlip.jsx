@@ -2,6 +2,8 @@ import { taka, fmtDate } from '../../utils/format.js';
 
 export default function SalarySlip({ employee, record, business }) {
   if (!employee || !record) return null;
+  const lastPayment = record.payments?.[record.payments.length - 1];
+  const due = Math.max(0, (record.amount || 0) - (record.paidAmount || 0));
   return (
     <div className="print-a4" style={{ minHeight: 'auto' }}>
       <div style={{ textAlign: 'center', borderBottom: '2px solid #000', paddingBottom: 10 }}>
@@ -15,9 +17,12 @@ export default function SalarySlip({ employee, record, business }) {
           <Tr l="Designation" r={employee.designation} />
           <Tr l="Phone" r={employee.phone || '-'} />
           <Tr l="Salary Month" r={record.month} />
-          <Tr l="Amount" r={taka(record.amount)} />
+          <Tr l="Total Salary" r={taka(record.amount)} />
+          {lastPayment && <Tr l="This Payment" r={`${taka(lastPayment.amount)} (${lastPayment.method})`} />}
+          <Tr l="Total Paid" r={taka(record.paidAmount ?? record.amount)} />
+          <Tr l="Remaining Due" r={taka(due)} />
           <Tr l="Status" r={record.status.toUpperCase()} />
-          <Tr l="Paid Date" r={record.paidAt ? fmtDate(record.paidAt) : '-'} />
+          <Tr l="Paid Date" r={(lastPayment?.date || record.paidAt) ? fmtDate(lastPayment?.date || record.paidAt) : '-'} />
         </tbody>
       </table>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 60 }}>

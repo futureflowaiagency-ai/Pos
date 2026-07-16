@@ -6,9 +6,10 @@ import {
 import { protect } from '../middleware/auth.js';
 import { requireBusiness } from '../middleware/tenant.js';
 import { authorize } from '../middleware/role.js';
+import { requireModule } from '../middleware/permissions.js';
 
 const router = Router();
-router.use(protect, requireBusiness);
+router.use(protect, requireBusiness, requireModule('marketing'));
 
 // Credentials & integrations (owner-only — they hold the keys/costs).
 router.route('/settings').get(getSettings).put(authorize('owner', 'superadmin'), updateSettings);

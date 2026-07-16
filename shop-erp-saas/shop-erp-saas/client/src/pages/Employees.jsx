@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, Wallet, Pencil, Eye, Search, ChevronLeft, ChevronRight, Power, X, Upload } from 'lucide-react';
+import { Plus, Trash2, Wallet, Pencil, Eye, Search, ChevronLeft, ChevronRight, Power, X, Upload, KeyRound, Copy, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios.js';
 import { uploadImage } from '../api/upload.js';
@@ -10,9 +10,11 @@ import SalarySlip from '../components/print/SalarySlip.jsx';
 import { taka, fmtDate } from '../utils/format.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useConfirm } from '../context/ConfirmContext.jsx';
+import { MODULES } from '../constants/modules.js';
 
 const thisMonth = new Date().toISOString().slice(0, 7);
 const PAGE_SIZE = 8;
+const emptyLogin = { grantLogin: false, permissions: [] };
 
 const emptyForm = {
   photo: '', name: '', phone: '', email: '', gender: '', dob: '', designation: 'Staff',
@@ -35,6 +37,7 @@ function Avatar({ name, photo, size = 36 }) {
 
 export default function Employees() {
   const { business } = useAuth();
+  const isMobile = business?.type === 'mobile';
   const confirm = useConfirm();
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -51,8 +54,13 @@ export default function Employees() {
   const [form, setForm] = useState(emptyForm);
   const [viewEmp, setViewEmp] = useState(null);
   const [salaryModal, setSalaryModal] = useState(null);
-  const [salaryForm, setSalaryForm] = useState({ month: thisMonth, amount: 0, status: 'paid' });
+  const [salaryForm, setSalaryForm] = useState({ month: thisMonth, totalAmount: 0, amount: '', source: 'cash' });
   const [slip, setSlip] = useState(null);
+  // login access (staff dashboard account) + one-time password reveal
+  const [login, setLogin] = useState(emptyLogin);
+  const [resetResult, setResetResult] = useState(null); // { tempPassword }
+  const [resetting, setResetting] = useState(false);
+  const visibleModules = MODULES.filter((m) => isMobile || !['warranty', 'installments', 'services'].includes(m.key));
 
   const load = async () => {
     setLoading(true);
@@ -99,27 +107,51 @@ export default function Employees() {
     }
   };
 
-  const openNew = () => { setForm(emptyForm); setEditId(null); setModal(true); };
+  const openNew = () => { setForm(emptyForm); setLogin(emptyLogin); setEditId(null); setModal(true); };
   const openEdit = (emp) => {
     setForm({ ...emptyForm, ...emp, dob: toDateInput(emp.dob), joinDate: toDateInput(emp.joinDate) });
+    setLogin({ grantLogin: !!emp.user, permissions: emp.user?.permissions || [] });
     setEditId(emp._id); setModal(true);
   };
+
+  const togglePerm = (key) => setLogin((l) => ({
+    ...l, permissions: l.permissions.includes(key) ? l.permissions.filter((p) => p !== key) : [...l.permissions, key],
+  }));
 
   const save = async () => {
     if (!form.name.trim()) return toast.error('Full name is required');
     if (!form.phone.trim()) return toast.error('Mobile number is required');
+    if (login.grantLogin && !form.user && !form.email?.trim()) return toast.error('Email is required to grant login access');
     try {
       const payload = {
         ...form,
         monthlySalary: +form.monthlySalary || 0,
         dob: form.dob || undefined,
         joinDate: form.joinDate || undefined,
+        grantLogin: login.grantLogin,
+        permissions: login.permissions,
       };
-      delete payload._id; delete payload.salaryHistory; delete payload.createdAt; delete payload.updatedAt;
-      if (editId) { await api.put(`/employees/${editId}`, payload); toast.success('Employee updated'); }
-      else { await api.post('/employees', payload); toast.success('Employee added'); }
+      delete payload._id; delete payload.salaryHistory; delete payload.createdAt; delete payload.updatedAt; delete payload.user;
+      const { data } = editId ? await api.put(`/employees/${editId}`, payload) : await api.post('/employees', payload);
+      toast.success(editId ? 'Employee updated' : 'Employee added');
       setModal(false); load();
+      if (data.data.tempPassword) setResetResult({ name: form.name, tempPassword: data.data.tempPassword });
     } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
+  };
+
+  const resetPassword = async (emp) => {
+    const ok = await confirm({
+      title: 'Reset this employee\'s password?',
+      message: `This generates a brand-new temporary password for ${emp.name} and immediately invalidates their old one.`,
+      confirmText: 'Reset Password', tone: 'danger',
+    });
+    if (!ok) return;
+    setResetting(true);
+    try {
+      const { data } = await api.post(`/employees/${emp._id}/reset-password`);
+      setResetResult({ name: emp.name, tempPassword: data.data.tempPassword });
+    } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
+    setResetting(false);
   };
 
   const del = async (emp) => {
@@ -148,13 +180,32 @@ export default function Employees() {
     catch (e) { toast.error(e.response?.data?.message || 'Error'); }
   };
 
-  const openSalary = (emp) => { setSalaryModal(emp); setSalaryForm({ month: thisMonth, amount: emp.monthlySalary, status: 'paid', source: 'cash' }); };
+  const openSalary = (emp) => {
+    setSalaryModal(emp);
+    const existing = emp.salaryHistory?.find((s) => s.month === thisMonth);
+    setSalaryForm({ month: thisMonth, totalAmount: existing?.amount ?? emp.monthlySalary, amount: '', source: 'cash' });
+  };
+  // Switching the month should reflect that month's existing record (if any), not
+  // carry over the previous month's total/paid figures.
+  const changeSalaryMonth = (month) => {
+    const existing = salaryModal.salaryHistory?.find((s) => s.month === month);
+    setSalaryForm({ ...salaryForm, month, totalAmount: existing?.amount ?? salaryModal.monthlySalary, amount: '' });
+  };
+  const salaryEntry = salaryModal?.salaryHistory?.find((s) => s.month === salaryForm.month);
+  const salaryPaidSoFar = salaryEntry?.paidAmount || 0;
+  const salaryDue = Math.max(0, Number(salaryForm.totalAmount || 0) - salaryPaidSoFar);
+
   const paySalary = async () => {
-    const { data } = await api.post(`/employees/${salaryModal._id}/salary`, { ...salaryForm, amount: +salaryForm.amount });
-    toast.success('Salary recorded');
-    const rec = data.data.employee.salaryHistory.find((s) => s.month === salaryForm.month);
-    setSlip({ employee: data.data.employee, record: rec });
-    setSalaryModal(null); load();
+    if (!(Number(salaryForm.amount) > 0)) return toast.error('Enter a valid payment amount');
+    try {
+      const { data } = await api.post(`/employees/${salaryModal._id}/salary`, {
+        month: salaryForm.month, totalAmount: +salaryForm.totalAmount || 0, amount: +salaryForm.amount, source: salaryForm.source,
+      });
+      toast.success('Salary payment recorded');
+      const rec = data.data.employee.salaryHistory.find((s) => s.month === salaryForm.month);
+      setSlip({ employee: data.data.employee, record: rec });
+      setSalaryModal(null); load();
+    } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
   };
 
   return (
@@ -185,7 +236,10 @@ export default function Employees() {
         columns={[
           { key: 'photo', label: '', render: (r) => <Avatar name={r.name} photo={r.photo} /> },
           { key: 'name', label: 'Name', render: (r) => (
-            <div><p className="font-medium">{r.name}</p><p className="text-xs text-slate-400">{r.email || ''}</p></div>
+            <div>
+              <p className="font-medium flex items-center gap-1">{r.name}{r.user && <ShieldCheck size={13} className="text-brand-500" title="Has dashboard login" />}</p>
+              <p className="text-xs text-slate-400">{r.email || ''}</p>
+            </div>
           )},
           { key: 'employeeId', label: 'Emp ID', render: (r) => <span className="font-mono text-xs">{r.employeeId || '—'}</span> },
           { key: 'designation', label: 'Designation' },
@@ -256,6 +310,36 @@ export default function Employees() {
             <div><label className="label">Emergency Contact</label><input className="input" value={form.emergencyContact} onChange={set('emergencyContact')} /></div>
             <div className="col-span-2"><label className="label">Address</label><input className="input" value={form.address} onChange={set('address')} /></div>
           </div>
+
+          {/* Login Access — controls whether this employee has a dashboard login,
+              and exactly which sections they can see. Not every employee needs one. */}
+          <div className="border-t border-slate-200 dark:border-slate-700 pt-4">
+            <h4 className="font-semibold text-sm text-slate-500 uppercase tracking-wide mb-2">Login Access</h4>
+            {login.grantLogin && form.user ? (
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <p className="text-sm">Login: <strong>{form.user.email}</strong> <span className={`badge ml-1 ${form.user.isActive !== false ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{form.user.isActive !== false ? 'active' : 'inactive'}</span></p>
+                <button type="button" className="btn-ghost text-xs" disabled={resetting} onClick={() => resetPassword(form)}><KeyRound size={13} className="inline mr-1" /> Reset Password</button>
+              </div>
+            ) : (
+              <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                <input type="checkbox" checked={login.grantLogin} onChange={(e) => setLogin({ ...login, grantLogin: e.target.checked })} />
+                <span className="text-sm">Give this employee a dashboard login (uses the email above)</span>
+              </label>
+            )}
+            {(login.grantLogin || form.user) && (
+              <div>
+                <p className="text-xs text-slate-400 mb-2">Tick the sections this employee is allowed to see. You can change this anytime.</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {visibleModules.map((m) => (
+                    <label key={m.key} className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={login.permissions.includes(m.key)} onChange={() => togglePerm(m.key)} />
+                      {m.label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </Modal>
 
@@ -305,32 +389,52 @@ export default function Employees() {
         )}
       </Modal>
 
-      {/* Pay salary */}
+      {/* Pay salary — supports partial payment (e.g. salary 20,000, pay 10,000 now,
+          settle the rest later by opening this again for the same month) */}
       <Modal open={!!salaryModal} onClose={() => setSalaryModal(null)} title={`Pay Salary — ${salaryModal?.name}`}
-        footer={<><button className="btn-ghost" onClick={() => setSalaryModal(null)}>Cancel</button><button className="btn-primary" onClick={paySalary}>Record</button></>}>
+        footer={<><button className="btn-ghost" onClick={() => setSalaryModal(null)}>Cancel</button><button className="btn-primary" onClick={paySalary}>Record Payment</button></>}>
         <div className="space-y-3">
-          <div><label className="label">Month</label><input className="input" type="month" value={salaryForm.month} onChange={(e) => setSalaryForm({ ...salaryForm, month: e.target.value })} /></div>
-          <div><label className="label">Amount</label><input className="input" type="number" value={salaryForm.amount} onChange={(e) => setSalaryForm({ ...salaryForm, amount: e.target.value })} /></div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><label className="label">Status</label>
-              <select className="input" value={salaryForm.status} onChange={(e) => setSalaryForm({ ...salaryForm, status: e.target.value })}>
-                <option value="paid">Paid</option><option value="due">Due</option>
-              </select>
-            </div>
-            <div><label className="label">Paid From</label>
-              <select className="input" value={salaryForm.source} onChange={(e) => setSalaryForm({ ...salaryForm, source: e.target.value })} disabled={salaryForm.status !== 'paid'}>
-                <option value="cash">Cash</option><option value="bank">Bank</option><option value="bkash">bKash</option>
-                <option value="nagad">Nagad</option><option value="rocket">Rocket</option><option value="card">Card</option>
-              </select>
-            </div>
+          <div><label className="label">Month</label><input className="input" type="month" value={salaryForm.month} onChange={(e) => changeSalaryMonth(e.target.value)} /></div>
+          <div><label className="label">Total Salary for this Month</label><input className="input" type="number" value={salaryForm.totalAmount} onChange={(e) => setSalaryForm({ ...salaryForm, totalAmount: e.target.value })} /></div>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-lg bg-slate-50 dark:bg-slate-800 p-2"><p className="text-xs text-slate-400">Paid so far</p><p className="font-semibold text-green-600">{taka(salaryPaidSoFar)}</p></div>
+            <div className="rounded-lg bg-slate-50 dark:bg-slate-800 p-2"><p className="text-xs text-slate-400">Due</p><p className="font-semibold text-red-500">{taka(salaryDue)}</p></div>
           </div>
-          <p className="text-xs text-slate-400">Paid salary is recorded as an expense (category “Salary”).</p>
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="label mb-0">Amount to Pay Now</label>
+              <button type="button" className="text-xs text-brand-600" onClick={() => setSalaryForm({ ...salaryForm, amount: String(salaryDue) })}>Pay full due</button>
+            </div>
+            <input className="input" type="number" value={salaryForm.amount} onChange={(e) => setSalaryForm({ ...salaryForm, amount: e.target.value })} placeholder={String(salaryDue)} />
+          </div>
+          <div><label className="label">Paid From</label>
+            <select className="input" value={salaryForm.source} onChange={(e) => setSalaryForm({ ...salaryForm, source: e.target.value })}>
+              <option value="cash">Cash</option><option value="bank">Bank</option><option value="bkash">bKash</option>
+              <option value="nagad">Nagad</option><option value="rocket">Rocket</option><option value="card">Card</option>
+            </select>
+          </div>
+          <p className="text-xs text-slate-400">Each payment is booked as its own expense (category "Salary") — pay in parts and settle the rest anytime later.</p>
         </div>
       </Modal>
 
       <PrintWrapper open={!!slip} onClose={() => setSlip(null)} title="Salary Slip">
         {slip && <SalarySlip employee={slip.employee} record={slip.record} business={business} />}
       </PrintWrapper>
+
+      {/* One-time login/reset password reveal — closing this loses it forever, by design */}
+      <Modal open={!!resetResult} onClose={() => setResetResult(null)} title="Temporary Password Generated"
+        footer={<button className="btn-primary" onClick={() => setResetResult(null)}>Done</button>}>
+        {resetResult && (
+          <div className="space-y-3">
+            <p className="text-sm">Login password for <strong>{resetResult.name}</strong>:</p>
+            <div className="flex items-center gap-2">
+              <code className="input font-mono text-lg tracking-wider flex-1 select-all">{resetResult.tempPassword}</code>
+              <button className="btn-ghost p-2" title="Copy" onClick={() => { navigator.clipboard.writeText(resetResult.tempPassword); toast.success('Copied'); }}><Copy size={16} /></button>
+            </div>
+            <p className="text-xs text-red-500">This is shown only once and cannot be retrieved again — share it with the employee now.</p>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

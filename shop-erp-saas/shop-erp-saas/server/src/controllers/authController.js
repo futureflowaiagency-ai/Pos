@@ -15,6 +15,8 @@ export const publicUser = (u) => ({
   role: u.role,
   business: u.business,
   preferences: u.preferences,
+  // which modules this user can see — only meaningful for role:'staff'
+  permissions: u.permissions || [],
 });
 
 // @desc Public self-registration is DISABLED.

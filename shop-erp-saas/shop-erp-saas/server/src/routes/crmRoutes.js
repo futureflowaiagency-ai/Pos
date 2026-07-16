@@ -2,9 +2,10 @@ import { Router } from 'express';
 import * as crm from '../controllers/crmController.js';
 import { protect } from '../middleware/auth.js';
 import { requireBusiness } from '../middleware/tenant.js';
+import { requireModule } from '../middleware/permissions.js';
 
 const router = Router();
-router.use(protect, requireBusiness);
+router.use(protect, requireBusiness, requireModule('crm'));
 
 const mount = (path, c) => {
   router.route(`/${path}`).get(c.list).post(c.create);

@@ -8,28 +8,30 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { useLang } from '../../context/LanguageContext.jsx';
 
 // Links shown to every shop owner. Mobile-specific links are spliced in below.
+// `key` matches the module keys used by the staff permission system (server
+// config/modules.js + client constants/modules.js) so links can be filtered per-login.
 const baseLinks = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/products', label: 'Products', icon: Package },
-  { to: '/pos', label: 'POS / Sales', icon: ShoppingCart },
-  { to: '/customers', label: 'Customers', icon: Users },
-  { to: '/suppliers', label: 'Suppliers', icon: Truck },
-  { to: '/employees', label: 'Employees', icon: UserCog },
-  { to: '/finance', label: 'Finance', icon: Wallet },
-  { to: '/returns', label: 'Returns & Exchange', icon: Undo2 },
-  { to: '/import-export', label: 'Import / Export', icon: FileSpreadsheet },
-  { to: '/marketing', label: 'Marketing', icon: Megaphone },
-  { to: '/crm', label: 'CRM', icon: Contact2 },
-  { to: '/subscription', label: 'Subscription', icon: CreditCard },
-  { to: '/activity', label: 'Activity Logs', icon: ScrollText },
-  { to: '/settings', label: 'Settings', icon: Settings },
+  { to: '/', key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/products', key: 'products', label: 'Products', icon: Package },
+  { to: '/pos', key: 'pos', label: 'POS / Sales', icon: ShoppingCart },
+  { to: '/customers', key: 'customers', label: 'Customers', icon: Users },
+  { to: '/suppliers', key: 'suppliers', label: 'Suppliers', icon: Truck },
+  { to: '/employees', key: 'employees', label: 'Employees', icon: UserCog },
+  { to: '/finance', key: 'finance', label: 'Finance', icon: Wallet },
+  { to: '/returns', key: 'returns', label: 'Returns & Exchange', icon: Undo2 },
+  { to: '/import-export', key: 'import-export', label: 'Import / Export', icon: FileSpreadsheet },
+  { to: '/marketing', key: 'marketing', label: 'Marketing', icon: Megaphone },
+  { to: '/crm', key: 'crm', label: 'CRM', icon: Contact2 },
+  { to: '/subscription', key: 'subscription', label: 'Subscription', icon: CreditCard },
+  { to: '/activity', key: 'activity', label: 'Activity Logs', icon: ScrollText },
+  { to: '/settings', key: 'settings', label: 'Settings', icon: Settings },
 ];
 
 // Extra modules enabled only for Mobile Shop Management businesses.
 const mobileLinks = [
-  { to: '/warranty', label: 'Warranty Check', icon: ShieldQuestion },
-  { to: '/installments', label: 'EMI / Installments', icon: CalendarClock },
-  { to: '/services', label: 'Service / Repair', icon: Wrench },
+  { to: '/warranty', key: 'warranty', label: 'Warranty Check', icon: ShieldQuestion },
+  { to: '/installments', key: 'installments', label: 'EMI / Installments', icon: CalendarClock },
+  { to: '/services', key: 'services', label: 'Service / Repair', icon: Wrench },
 ];
 
 export default function Sidebar({ open, onClose }) {
@@ -39,12 +41,19 @@ export default function Sidebar({ open, onClose }) {
   const isMobile = business?.type === 'mobile';
 
   // insert mobile module links right after "Suppliers" for mobile shops
-  const ownerLinks = isMobile
+  let ownerLinks = isMobile
     ? (() => {
         const idx = baseLinks.findIndex((l) => l.to === '/suppliers');
         return [...baseLinks.slice(0, idx + 1), ...mobileLinks, ...baseLinks.slice(idx + 1)];
       })()
     : baseLinks;
+
+  // A staff login only sees the modules the owner has explicitly granted;
+  // owner/superadmin always see everything, regardless of `user.permissions`.
+  if (user?.role === 'staff') {
+    const allowed = user.permissions || [];
+    ownerLinks = ownerLinks.filter((l) => allowed.includes(l.key));
+  }
 
   return (
     <>
