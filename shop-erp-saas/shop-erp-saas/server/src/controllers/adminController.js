@@ -107,6 +107,33 @@ export const setBusinessPlan = asyncHandler(async (req, res) => {
   ok(res, { business }, 'Custom plan updated');
 });
 
+// Generates a random, human-typeable temporary password (avoids visually
+// ambiguous characters like 0/O, 1/l/I).
+const genTempPassword = () => {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  let s = '';
+  for (let i = 0; i < 10; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+};
+
+// @route POST /api/admin/businesses/:id/reset-password
+// Resets the business owner's password to a freshly generated temporary one and
+// returns it exactly once in this response. Passwords are always one-way hashed —
+// there is no way to look up an existing password (by design), so a locked-out
+// user is helped by issuing them a brand-new password, not by recovering the old one.
+export const resetOwnerPassword = asyncHandler(async (req, res) => {
+  const business = await Business.findById(req.params.id);
+  if (!business) throw new ApiError(404, 'Business not found');
+  const owner = await User.findById(business.owner);
+  if (!owner) throw new ApiError(404, 'Owner not found');
+
+  const tempPassword = genTempPassword();
+  owner.password = tempPassword; // hashed by User's pre-save hook
+  await owner.save();
+
+  ok(res, { tempPassword, owner: publicUser(owner) }, 'Password reset — share this with the owner now, it will not be shown again');
+});
+
 // @route PATCH /api/admin/businesses/:id/toggle  (enable/disable owner)
 export const toggleBusinessOwner = asyncHandler(async (req, res) => {
   const business = await Business.findById(req.params.id);

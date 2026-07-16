@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Building2, Users, Clock, BadgeCheck, Check, X, UserPlus } from 'lucide-react';
+import { Building2, Users, Clock, BadgeCheck, Check, X, UserPlus, KeyRound, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../api/axios.js';
 import StatCard from '../../components/ui/StatCard.jsx';
@@ -26,6 +26,8 @@ export default function AdminPanel() {
   const [planBiz, setPlanBiz] = useState(null);
   const [planForm, setPlanForm] = useState(emptyPlan);
   const [savingPlan, setSavingPlan] = useState(false);
+  const [resetResult, setResetResult] = useState(null); // { ownerName, tempPassword } — shown once
+  const [resetting, setResetting] = useState(false);
 
   const load = async () => {
     const [o, p, b] = await Promise.all([
@@ -71,6 +73,24 @@ export default function AdminPanel() {
     if (!ok) return;
     try { await api.patch(`/admin/businesses/${r._id}/toggle`); toast.success('Owner status updated'); load(); }
     catch (e) { toast.error(e.response?.data?.message || 'Error'); }
+  };
+
+  // Passwords are one-way hashed and never stored/viewable — the only way to help a
+  // locked-out owner is to issue a brand-new temporary password, shown here exactly once.
+  const resetPassword = async (r) => {
+    const ok = await confirm({
+      title: 'Reset this owner\'s password?',
+      message: `This generates a brand-new temporary password for ${r.owner?.name || 'this owner'} and immediately invalidates their old one. You'll need to share the new password with them yourself.`,
+      confirmText: 'Reset Password',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    setResetting(true);
+    try {
+      const { data } = await api.post(`/admin/businesses/${r._id}/reset-password`);
+      setResetResult({ ownerName: r.owner?.name || 'Owner', tempPassword: data.data.tempPassword });
+    } catch (e) { toast.error(e.response?.data?.message || 'Error'); }
+    setResetting(false);
   };
 
   const createOwner = async () => {
@@ -185,6 +205,7 @@ export default function AdminPanel() {
                 <div className="flex justify-end gap-1">
                   <button onClick={() => openPlan(r)} className="btn-ghost text-xs">Set Price</button>
                   <button onClick={() => toggleOwner(r)} className="btn-ghost text-xs">{r.owner?.isActive !== false ? 'Deactivate' : 'Activate'}</button>
+                  <button onClick={() => resetPassword(r)} disabled={resetting} className="btn-ghost text-xs" title="Issue a new temporary password"><KeyRound size={13} className="inline mr-1" />Reset Password</button>
                 </div>
               )},
             ]}
@@ -233,6 +254,24 @@ export default function AdminPanel() {
             <p className="text-xs text-slate-500">Custom price off — this shop sees the default plans (৳500 / ৳2,500 / ৳4,500).</p>
           )}
         </div>
+      </Modal>
+      {/* One-time temp password reveal — closing this loses it forever, by design */}
+      <Modal open={!!resetResult} onClose={() => setResetResult(null)} title="Temporary Password Generated"
+        footer={<button className="btn-primary" onClick={() => setResetResult(null)}>Done</button>}>
+        {resetResult && (
+          <div className="space-y-3">
+            <p className="text-sm">New password for <strong>{resetResult.ownerName}</strong>:</p>
+            <div className="flex items-center gap-2">
+              <code className="input font-mono text-lg tracking-wider flex-1 select-all">{resetResult.tempPassword}</code>
+              <button
+                className="btn-ghost p-2"
+                title="Copy"
+                onClick={() => { navigator.clipboard.writeText(resetResult.tempPassword); toast.success('Copied'); }}
+              ><Copy size={16} /></button>
+            </div>
+            <p className="text-xs text-red-500">This is shown only once and cannot be retrieved again — share it with the owner now (they can change it afterwards from Settings).</p>
+          </div>
+        )}
       </Modal>
     </div>
   );
