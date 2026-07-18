@@ -63,8 +63,9 @@ export default function Products() {
   // matching product, but never writes anything without explicit confirmation.
   const [aiScanOpen, setAiScanOpen] = useState(false);
   const [aiScanBusy, setAiScanBusy] = useState(false);
-  const [aiScanResult, setAiScanResult] = useState(null); // { extracted, matchedProduct }
+  const [aiScanResult, setAiScanResult] = useState(null); // { extracted, matchedProduct, matchCount? }
   const [aiScanTarget, setAiScanTarget] = useState(''); // product _id to confirm into, '' = create new
+  const [scanImeiValue, setScanImeiValue] = useState(''); // hardware-scanner text input
   const [highlightId, setHighlightId] = useState(null);
 
   const load = async () => {
@@ -97,7 +98,7 @@ export default function Products() {
   };
 
   // ---- Scan IMEI with AI ----
-  const openAiScan = () => { setAiScanOpen(true); setAiScanResult(null); setAiScanTarget(''); };
+  const openAiScan = () => { setAiScanOpen(true); setAiScanResult(null); setAiScanTarget(''); setScanImeiValue(''); };
 
   const runAiScan = async (file) => {
     if (!file) return;
@@ -108,6 +109,25 @@ export default function Products() {
       const { data } = await api.post('/products/scan-ai', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       setAiScanResult(data.data);
       setAiScanTarget(data.data.matchedProduct?._id || '');
+    } catch (e) { toast.error(e.response?.data?.message || 'Scan failed'); }
+    setAiScanBusy(false);
+  };
+
+  // Hardware barcode/IMEI scanner path — no photo involved, so matching is done
+  // by TAC prefix against units this shop has already entered (see backend note).
+  const runScanImei = async () => {
+    const imei = scanImeiValue.trim();
+    if (!imei) return;
+    setAiScanBusy(true); setAiScanResult(null);
+    try {
+      const { data } = await api.post('/products/scan-imei', { imei });
+      const p = data.data.matchedProduct;
+      setAiScanResult({
+        extracted: { name: p?.name || '', brand: p?.brand || '', storage: p?.storage || '', color: p?.color || '', imei1: imei, imei2: '' },
+        matchedProduct: p, matchCount: data.data.matchCount,
+      });
+      setAiScanTarget(p?._id || '');
+      setScanImeiValue('');
     } catch (e) { toast.error(e.response?.data?.message || 'Scan failed'); }
     setAiScanBusy(false);
   };
@@ -330,7 +350,7 @@ export default function Products() {
         <h1 className="text-2xl font-bold">Products</h1>
         <div className="flex gap-2 flex-wrap">
           <button className="btn-ghost" disabled={stockReportLoading} onClick={openStockReport}><Printer size={18} /> Stock Print</button>
-          {serialEnabled && <button className="btn-ghost" onClick={openAiScan}><Sparkles size={18} className="text-brand-500" /> Scan IMEI with AI</button>}
+          {serialEnabled && <button className="btn-ghost" onClick={openAiScan}><Sparkles size={18} className="text-brand-500" /> Scan / Add IMEI</button>}
           <button className="btn-primary" onClick={openNew}><Plus size={18} /> Add Product</button>
         </div>
       </div>
@@ -494,7 +514,7 @@ export default function Products() {
 
       {/* Scan IMEI with AI — reads a photo, suggests a match, but nothing is
           saved until explicitly confirmed below */}
-      <Modal open={aiScanOpen} onClose={() => setAiScanOpen(false)} title="Scan IMEI with AI" size="lg"
+      <Modal open={aiScanOpen} onClose={() => setAiScanOpen(false)} title="Scan / Add IMEI" size="lg"
         footer={aiScanResult ? (
           <>
             <button className="btn-ghost" onClick={() => setAiScanOpen(false)}>Cancel</button>
@@ -505,14 +525,32 @@ export default function Products() {
         ) : (
           <button className="btn-ghost" onClick={() => setAiScanOpen(false)}>Cancel</button>
         )}>
-        <div className="space-y-3">
-          <p className="text-xs text-slate-400">Take a clear photo of the phone, its box, or the IMEI sticker. AI reads the model name and IMEI — nothing is saved until you confirm below.</p>
-          <input type="file" accept="image/*" capture="environment" className="input" onChange={(e) => runAiScan(e.target.files?.[0])} />
-          {aiScanBusy && <p className="text-sm text-brand-600">Reading photo…</p>}
+        <div className="space-y-4">
+          <div>
+            <label className="label">Scan with your barcode/IMEI scanner</label>
+            <div className="flex gap-2">
+              <input
+                autoFocus className="input font-mono" placeholder="Scan or type IMEI, then Enter…"
+                value={scanImeiValue} onChange={(e) => setScanImeiValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') runScanImei(); }}
+              />
+              <button className="btn-primary shrink-0" onClick={runScanImei}>Scan</button>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">Matches against units this shop has already entered for the same model. New models with no history yet won't match — pick or create the product manually below.</p>
+          </div>
+
+          <div className="text-center text-xs text-slate-400">— OR —</div>
+
+          <div>
+            <label className="label">Scan a photo with AI (for a brand-new model)</label>
+            <input type="file" accept="image/*" capture="environment" className="input" onChange={(e) => runAiScan(e.target.files?.[0])} />
+            <p className="text-xs text-slate-400 mt-1">Take a clear photo of the phone, its box, or the IMEI sticker — AI reads the model name and IMEI off it.</p>
+          </div>
+          {aiScanBusy && <p className="text-sm text-brand-600">Reading…</p>}
 
           {aiScanResult && (
             <div className="space-y-3 border-t border-slate-200 dark:border-slate-700 pt-3">
-              <p className="text-sm font-semibold">AI read from the photo (correct anything it got wrong):</p>
+              <p className="text-sm font-semibold">Review before saving (correct anything wrong):</p>
               <div className="grid grid-cols-2 gap-2">
                 <div><label className="label">Name</label><input className="input" value={aiScanResult.extracted.name} onChange={(e) => setExtractedField('name', e.target.value)} /></div>
                 <div><label className="label">Brand</label><input className="input" value={aiScanResult.extracted.brand} onChange={(e) => setExtractedField('brand', e.target.value)} /></div>
@@ -524,9 +562,13 @@ export default function Products() {
 
               <div className={`rounded-lg p-3 space-y-2 ${aiScanResult.matchedProduct ? 'bg-brand-50 dark:bg-brand-900/20' : 'bg-amber-50 dark:bg-amber-900/20'}`}>
                 {aiScanResult.matchedProduct ? (
-                  <p className="text-sm">AI matched this to <strong>{aiScanResult.matchedProduct.name}</strong>. Confirm below, or change it if it's wrong.</p>
+                  <p className="text-sm">
+                    Matched to <strong>{aiScanResult.matchedProduct.name}</strong>
+                    {aiScanResult.matchCount ? ` — ${aiScanResult.matchCount} other unit(s) of this exact model already on file` : ' (by name)'}.
+                    Confirm below, or change it if it's wrong.
+                  </p>
                 ) : (
-                  <p className="text-sm text-amber-700 dark:text-amber-400">No matching product found by name — pick one below if this is really existing stock, or leave it to create a new product.</p>
+                  <p className="text-sm text-amber-700 dark:text-amber-400">No matching product found — pick one below if this is really existing stock, or leave it to create a new product.</p>
                 )}
                 <label className="label">Target Product</label>
                 <select className="input" value={aiScanTarget} onChange={(e) => setAiScanTarget(e.target.value)}>

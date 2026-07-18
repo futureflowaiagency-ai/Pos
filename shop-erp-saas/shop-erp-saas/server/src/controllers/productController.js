@@ -294,3 +294,52 @@ export const scanProductWithAI = asyncHandler(async (req, res) => {
     } : null,
   });
 });
+
+// @route POST /api/products/scan-imei  body: { imei }
+// For a hardware barcode/IMEI scanner (which only ever outputs plain digits —
+// no photo, so vision AI can't run here). Matches by TAC prefix (the first 8
+// digits of an IMEI identify the exact device model) against units THIS shop
+// has already entered — no external lookup, no guessing: if other units
+// sharing this prefix are filed under a product, it's the same model. A
+// brand-new model with no history yet simply returns no match.
+export const scanImei = asyncHandler(async (req, res) => {
+  const imei = String(req.body.imei || '').trim();
+  if (!imei) throw new ApiError(400, 'IMEI / serial is required');
+
+  const existingUnit = await PhoneUnit.findOne(tenantFilter(req, {
+    $or: [{ imei1: imei }, { imei2: imei }, { serial: imei }],
+  })).populate('product', 'name');
+  if (existingUnit) {
+    throw new ApiError(409, `This IMEI is already in the system, under "${existingUnit.product?.name || 'a product'}" (${existingUnit.status === 'sold' ? 'sold' : 'in stock'}).`);
+  }
+
+  let matchedProduct = null;
+  let matchCount = 0;
+  const tac = imei.slice(0, 8);
+  if (tac.length === 8) {
+    const sameTac = await PhoneUnit.find(tenantFilter(req, {
+      $or: [{ imei1: { $regex: `^${escapeRegex(tac)}` } }, { imei2: { $regex: `^${escapeRegex(tac)}` } }],
+    })).populate('product', 'name brand storage color category').limit(50);
+
+    const counts = new Map(); // productId -> { product, count }
+    for (const u of sameTac) {
+      if (!u.product) continue;
+      const key = String(u.product._id);
+      const entry = counts.get(key) || { product: u.product, count: 0 };
+      entry.count++;
+      counts.set(key, entry);
+    }
+    let best = null;
+    for (const entry of counts.values()) if (!best || entry.count > best.count) best = entry;
+    if (best) { matchedProduct = best.product; matchCount = best.count; }
+  }
+
+  ok(res, {
+    imei,
+    matchedProduct: matchedProduct ? {
+      _id: matchedProduct._id, name: matchedProduct.name, brand: matchedProduct.brand,
+      storage: matchedProduct.storage, color: matchedProduct.color, category: matchedProduct.category,
+    } : null,
+    matchCount,
+  });
+});

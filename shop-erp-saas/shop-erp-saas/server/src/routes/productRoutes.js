@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { getProducts, getProductByBarcode, createProduct, createProductsWithSupplier, updateProduct, deleteProduct, scanProductWithAI } from '../controllers/productController.js';
+import { getProducts, getProductByBarcode, createProduct, createProductsWithSupplier, updateProduct, deleteProduct, scanProductWithAI, scanImei } from '../controllers/productController.js';
 import { protect } from '../middleware/auth.js';
 import { requireBusiness } from '../middleware/tenant.js';
 import { requireModule } from '../middleware/permissions.js';
@@ -23,6 +23,7 @@ const handleImageUpload = (req, res, next) =>
 router.route('/').get(getProducts).post(createProduct);
 router.post('/batch-with-supplier', createProductsWithSupplier);
 router.post('/scan-ai', handleImageUpload, scanProductWithAI);
+router.post('/scan-imei', scanImei);
 router.get('/barcode/:code', getProductByBarcode);
 router.route('/:id').put(updateProduct).delete(deleteProduct);
 export default router;
