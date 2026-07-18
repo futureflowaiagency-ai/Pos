@@ -89,8 +89,71 @@ const genGemini = async (cfg, prompt, maxTokens) => {
 
 const callers = { anthropic: genAnthropic, openai: genOpenAI, groq: genGroq, gemini: genGemini };
 
+// ---- vision (image) callers — only providers that actually support image input.
+// Groq's central free model (llama-3.3-70b-versatile, text-only) is deliberately
+// excluded here; a shop's own Groq key wouldn't help with a photo either.
+const genGeminiVision = async (cfg, imageBase64, mimeType, prompt, maxTokens) => {
+  const model = cfg.model || 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cfg.apiKey}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: imageBase64 } }] }],
+      generationConfig: { maxOutputTokens: maxTokens },
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error?.message || `Gemini responded ${res.status}`);
+  const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+  return text.trim();
+};
+
+const genAnthropicVision = async (cfg, imageBase64, mimeType, prompt, maxTokens) => {
+  const client = new Anthropic({ apiKey: cfg.apiKey });
+  const res = await client.messages.create({
+    model: cfg.model || 'claude-opus-4-8',
+    max_tokens: maxTokens,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: mimeType, data: imageBase64 } },
+        { type: 'text', text: prompt },
+      ],
+    }],
+  });
+  return res.content.filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+};
+
+const genOpenAIVision = async (cfg, imageBase64, mimeType, prompt, maxTokens) => {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: cfg.model || 'gpt-4o-mini',
+      max_tokens: maxTokens,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } },
+        ],
+      }],
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error?.message || `OpenAI responded ${res.status}`);
+  return (data.choices?.[0]?.message?.content || '').trim();
+};
+
+const visionCallers = { gemini: genGeminiVision, anthropic: genAnthropicVision, openai: genOpenAIVision };
+
 // True if the platform has at least one central free key configured.
 export const hasCentralAI = () => !!(process.env.GEMINI_API_KEY || process.env.GROQ_API_KEY);
+
+// True if a vision-capable provider is available (central Gemini, or a shop's
+// own Anthropic/OpenAI key — Groq is text-only so it doesn't count here).
+export const hasVisionAI = (ai) => !!process.env.GEMINI_API_KEY || (ai?.apiKey && ['anthropic', 'openai'].includes(ai?.provider));
 
 // Ordered list of providers to attempt: the platform's free central keys
 // first (Gemini → Groq), then a shop's own key as a last resort if it set one.
@@ -126,3 +189,35 @@ export const generateText = async (ai, prompt, maxTokens = 1500) => {
 };
 
 export const generateCopy = async (ai, opts) => generateText(ai, buildPrompt(opts), 1500);
+
+// Vision chain: central Gemini first (if configured), then the shop's own key
+// only if it's a vision-capable provider.
+const buildVisionChain = (ai) => {
+  const chain = [];
+  if (process.env.GEMINI_API_KEY) {
+    chain.push({ provider: 'gemini', apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-2.0-flash' });
+  }
+  if (ai?.apiKey && ['anthropic', 'openai'].includes(ai?.provider)) {
+    chain.push({ provider: ai.provider, apiKey: ai.apiKey, model: ai.model });
+  }
+  return chain;
+};
+
+// Image + prompt in, best-effort text out (with provider fallback), for reading
+// a photo of a product/box/IMEI label. imageBase64 must NOT include the
+// "data:...;base64," prefix — just the raw base64 payload.
+export const generateVision = async (ai, imageBase64, mimeType, prompt, maxTokens = 500) => {
+  const chain = buildVisionChain(ai);
+  if (!chain.length) throw new Error('No vision-capable AI is configured. Add a free Gemini key on the server, or your own Anthropic/OpenAI key in Marketing settings.');
+  let lastErr;
+  for (const cfg of chain) {
+    try {
+      const out = await visionCallers[cfg.provider](cfg, imageBase64, mimeType, prompt, maxTokens);
+      if (out) return out;
+      lastErr = new Error('Empty AI response');
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error('All vision AI providers failed');
+};
