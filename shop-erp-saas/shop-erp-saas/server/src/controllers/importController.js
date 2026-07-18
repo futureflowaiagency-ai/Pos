@@ -11,6 +11,7 @@ import Supplier from '../models/Supplier.js';
 import Product from '../models/Product.js';
 import Expense from '../models/Expense.js';
 import PhoneUnit from '../models/PhoneUnit.js';
+import Business from '../models/Business.js';
 
 const TENDERS = ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'];
 const toBool = (v) => ['true', '1', 'yes', 'y'].includes(String(v ?? '').trim().toLowerCase());
@@ -212,9 +213,11 @@ export const smartImportPreview = asyncHandler(async (req, res) => {
   const { format, total, valid, errors } = runSmartValidation(req);
   const suppliers = [...new Set(valid.map((v) => v.supplierName).filter(Boolean))].sort();
   const withPrices = valid.some((v) => v.purchasePrice > 0 || v.sellingPrice > 0);
+  const business = await Business.findById(req.businessId);
   ok(res, {
     format, total, validCount: valid.length, errorCount: errors.length,
     errors: errors.slice(0, 200), suppliers, sample: valid.slice(0, 20), withPrices,
+    defaultTrackSerial: business?.type === 'mobile',
   });
 });
 
@@ -229,6 +232,12 @@ export const smartImportCommit = asyncHandler(async (req, res) => {
 
   const supplierCache = new Map();
   let createdProducts = 0, updatedProducts = 0, createdSuppliers = 0;
+
+  // Mobile shops track every device by IMEI/serial individually — match the
+  // same default the manual Add Product form already uses for this business type,
+  // so imported phone stock shows the same "Manage IMEIs" controls everywhere.
+  const business = await Business.findById(req.businessId);
+  const defaultTrackSerial = business?.type === 'mobile';
 
   for (const data of valid) {
     let supplierDoc = null;
@@ -251,6 +260,7 @@ export const smartImportCommit = asyncHandler(async (req, res) => {
     }));
     if (existing) {
       existing.stock = data.stock;
+      existing.trackSerial = defaultTrackSerial;
       if (supplierDoc) existing.supplier = supplierDoc._id;
       if (data.purchasePrice) existing.purchasePrice = data.purchasePrice;
       if (data.sellingPrice) existing.sellingPrice = data.sellingPrice;
@@ -264,6 +274,7 @@ export const smartImportCommit = asyncHandler(async (req, res) => {
         purchasePrice: data.purchasePrice, sellingPrice: data.sellingPrice,
         barcode: data.barcode || undefined, sku: data.sku,
         supplier: supplierDoc?._id || null,
+        trackSerial: defaultTrackSerial,
       });
       createdProducts++;
     }

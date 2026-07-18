@@ -276,6 +276,9 @@ export default function ImportExport() {
             {!smartResult.withPrices && (
               <p className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle size={13} /> This file has no purchase/selling prices — imported products will start at ৳0 until you set prices from Edit Product.</p>
             )}
+            {smartResult.defaultTrackSerial && (
+              <p className="text-xs text-slate-500 flex items-center gap-1"><CheckCircle2 size={13} className="text-brand-500" /> Products will be added as IMEI/Serial-tracked (this shop's Mobile default) — the imported stock count is a starting point; add each device's real IMEI via "Manage IMEIs" on the Products page to reconcile.</p>
+            )}
             {smartResult.sample.length > 0 && (
               <div className="max-h-48 overflow-y-auto text-xs border border-slate-200 dark:border-slate-700 rounded-lg">
                 <table className="w-full">
