@@ -7,33 +7,9 @@ import Product from '../models/Product.js';
 import PhoneUnit from '../models/PhoneUnit.js';
 import Supplier from '../models/Supplier.js';
 import Purchase from '../models/Purchase.js';
-import MarketingSettings from '../models/MarketingSettings.js';
-import { decryptSecret } from '../utils/secretCrypto.js';
-import { generateVision, hasVisionAI } from '../services/aiService.js';
 
 const TENDERS = ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'];
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const normalizeName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-const SCAN_PROMPT = `You are looking at a photo of a mobile phone, its retail box, or its IMEI/serial sticker label.
-Extract exactly what is printed or visible — do not guess or invent anything you cannot actually read.
-Respond with ONLY a JSON object, no markdown, no explanation, in exactly this shape:
-{"name": "", "brand": "", "storage": "", "color": "", "imei1": "", "imei2": ""}
-- "name": the product/model name as printed (e.g. "Samsung Galaxy A15", "iPhone 13 Pro")
-- "brand": manufacturer if identifiable (e.g. "Samsung", "Apple")
-- "storage": RAM/ROM if printed (e.g. "4/128GB")
-- "color": color if printed
-- "imei1"/"imei2": 15-digit IMEI numbers if visible
-Leave any field as an empty string "" if it is not clearly visible in the image.`;
-
-function extractScanJson(text) {
-  const cleaned = String(text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
-  const start = cleaned.indexOf('{');
-  const end = cleaned.lastIndexOf('}');
-  if (start === -1 || end === -1) throw new ApiError(422, "Couldn't read this image clearly — try a clearer photo of the label/box");
-  try { return JSON.parse(cleaned.slice(start, end + 1)); }
-  catch { throw new ApiError(422, "Couldn't read this image clearly — try a clearer photo of the label/box"); }
-}
 
 // Generate a barcode value that's unique within the business.
 const genBarcodeValue = () => String(Date.now()).slice(-9) + String(Math.floor(Math.random() * 900 + 100));
@@ -50,11 +26,20 @@ const uniqueBarcode = async (req) => {
 export const getProducts = asyncHandler(async (req, res) => {
   const { search, category, lowStock } = req.query;
   const q = tenantFilter(req, { isActive: true });
-  if (search) q.$or = [
-    { name: { $regex: search, $options: 'i' } },
-    { sku: { $regex: search, $options: 'i' } },
-    { barcode: { $regex: search, $options: 'i' } },
-  ];
+  if (search) {
+    // Also match products by a unit's IMEI/serial — a shop owner searching an
+    // IMEI that's already in stock expects to find the product it belongs to,
+    // not just products matched by name/SKU/barcode.
+    const unitProductIds = await PhoneUnit.find(tenantFilter(req, {
+      $or: [{ imei1: { $regex: search, $options: 'i' } }, { imei2: { $regex: search, $options: 'i' } }, { serial: { $regex: search, $options: 'i' } }],
+    })).distinct('product');
+    q.$or = [
+      { name: { $regex: search, $options: 'i' } },
+      { sku: { $regex: search, $options: 'i' } },
+      { barcode: { $regex: search, $options: 'i' } },
+      ...(unitProductIds.length ? [{ _id: { $in: unitProductIds } }] : []),
+    ];
+  }
   if (category) q.category = category;
 
   let products = await Product.find(q).sort('-createdAt').populate('supplier', 'name');
@@ -233,113 +218,4 @@ export const deleteProduct = asyncHandler(async (req, res) => {
   if (!product) throw new ApiError(404, 'Product not found');
   await logActivity(req, { action: 'DELETE_PRODUCT', entity: 'Product', entityId: product._id });
   ok(res, {}, 'Product deleted');
-});
-
-// @route POST /api/products/scan-ai  (multipart, field: image)
-// Reads a photo of a phone / its box / its IMEI sticker via vision AI and
-// suggests a matching existing product (or none). Purely a suggestion — this
-// never writes to the database; the owner confirms or corrects before anything
-// is saved (either adding the IMEI to the matched product via the existing
-// /units endpoint, or opening Add Product pre-filled for a brand-new one).
-export const scanProductWithAI = asyncHandler(async (req, res) => {
-  if (!req.file) throw new ApiError(400, 'No image provided');
-
-  const settings = await MarketingSettings.findOne({ business: req.businessId });
-  const ai = settings?.ai ? { ...settings.ai.toObject(), apiKey: decryptSecret(settings.ai.apiKey) } : null;
-  if (!hasVisionAI(ai)) {
-    throw new ApiError(400, 'AI photo-scan is not configured. Add a free Gemini key on the server, or your own Anthropic/OpenAI key in Marketing → Integrations & Keys.');
-  }
-
-  const mimeType = req.file.mimetype || 'image/jpeg';
-  const base64 = req.file.buffer.toString('base64');
-  const raw = await generateVision(ai, base64, mimeType, SCAN_PROMPT, 400);
-  const extracted = extractScanJson(raw);
-
-  const name = String(extracted.name || '').trim();
-  const imei1 = String(extracted.imei1 || '').trim();
-  const imei2 = String(extracted.imei2 || '').trim();
-  if (!name && !imei1 && !imei2) {
-    throw new ApiError(422, "Couldn't identify a product name or IMEI in this photo — try a clearer picture of the label/box");
-  }
-
-  // If this IMEI is already in the system, say so plainly rather than
-  // suggesting it be added again as if it were new stock.
-  if (imei1 || imei2) {
-    const codes = [imei1, imei2].filter(Boolean);
-    const existingUnit = await PhoneUnit.findOne(tenantFilter(req, {
-      $or: [{ imei1: { $in: codes } }, { imei2: { $in: codes } }, { serial: { $in: codes } }],
-    })).populate('product', 'name');
-    if (existingUnit) {
-      throw new ApiError(409, `This IMEI is already in the system, under "${existingUnit.product?.name || 'a product'}" (${existingUnit.status === 'sold' ? 'sold' : 'in stock'}).`);
-    }
-  }
-
-  let matchedProduct = null;
-  if (name) {
-    const candidates = await Product.find(tenantFilter(req, { isActive: true }));
-    const normName = normalizeName(name);
-    matchedProduct = candidates.find((p) => normalizeName(p.name) === normName)
-      || candidates.find((p) => { const n = normalizeName(p.name); return n.length > 3 && (n.includes(normName) || normName.includes(n)); })
-      || null;
-  }
-
-  ok(res, {
-    extracted: {
-      name, brand: String(extracted.brand || '').trim(), storage: String(extracted.storage || '').trim(),
-      color: String(extracted.color || '').trim(), imei1, imei2,
-    },
-    matchedProduct: matchedProduct ? {
-      _id: matchedProduct._id, name: matchedProduct.name, brand: matchedProduct.brand,
-      storage: matchedProduct.storage, color: matchedProduct.color, category: matchedProduct.category,
-    } : null,
-  });
-});
-
-// @route POST /api/products/scan-imei  body: { imei }
-// For a hardware barcode/IMEI scanner (which only ever outputs plain digits —
-// no photo, so vision AI can't run here). Matches by TAC prefix (the first 8
-// digits of an IMEI identify the exact device model) against units THIS shop
-// has already entered — no external lookup, no guessing: if other units
-// sharing this prefix are filed under a product, it's the same model. A
-// brand-new model with no history yet simply returns no match.
-export const scanImei = asyncHandler(async (req, res) => {
-  const imei = String(req.body.imei || '').trim();
-  if (!imei) throw new ApiError(400, 'IMEI / serial is required');
-
-  const existingUnit = await PhoneUnit.findOne(tenantFilter(req, {
-    $or: [{ imei1: imei }, { imei2: imei }, { serial: imei }],
-  })).populate('product', 'name');
-  if (existingUnit) {
-    throw new ApiError(409, `This IMEI is already in the system, under "${existingUnit.product?.name || 'a product'}" (${existingUnit.status === 'sold' ? 'sold' : 'in stock'}).`);
-  }
-
-  let matchedProduct = null;
-  let matchCount = 0;
-  const tac = imei.slice(0, 8);
-  if (tac.length === 8) {
-    const sameTac = await PhoneUnit.find(tenantFilter(req, {
-      $or: [{ imei1: { $regex: `^${escapeRegex(tac)}` } }, { imei2: { $regex: `^${escapeRegex(tac)}` } }],
-    })).populate('product', 'name brand storage color category').limit(50);
-
-    const counts = new Map(); // productId -> { product, count }
-    for (const u of sameTac) {
-      if (!u.product) continue;
-      const key = String(u.product._id);
-      const entry = counts.get(key) || { product: u.product, count: 0 };
-      entry.count++;
-      counts.set(key, entry);
-    }
-    let best = null;
-    for (const entry of counts.values()) if (!best || entry.count > best.count) best = entry;
-    if (best) { matchedProduct = best.product; matchCount = best.count; }
-  }
-
-  ok(res, {
-    imei,
-    matchedProduct: matchedProduct ? {
-      _id: matchedProduct._id, name: matchedProduct.name, brand: matchedProduct.brand,
-      storage: matchedProduct.storage, color: matchedProduct.color, category: matchedProduct.category,
-    } : null,
-    matchCount,
-  });
 });

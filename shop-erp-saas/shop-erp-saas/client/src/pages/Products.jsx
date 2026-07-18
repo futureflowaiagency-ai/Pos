@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Search, AlertTriangle, Barcode, ScanLine, Tag, Printer, Sparkles } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, AlertTriangle, Barcode, ScanLine, Tag, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios.js';
 import DataTable from '../components/ui/DataTable.jsx';
@@ -59,14 +59,6 @@ export default function Products() {
   const [stockReport, setStockReport] = useState(null); // { category, groups }
   const [stockReportOpen, setStockReportOpen] = useState(false);
   const [stockReportLoading, setStockReportLoading] = useState(false);
-  // Scan IMEI with AI — reads a photo of the phone/box/label, suggests a
-  // matching product, but never writes anything without explicit confirmation.
-  const [aiScanOpen, setAiScanOpen] = useState(false);
-  const [aiScanBusy, setAiScanBusy] = useState(false);
-  const [aiScanResult, setAiScanResult] = useState(null); // { extracted, matchedProduct, matchCount? }
-  const [aiScanTarget, setAiScanTarget] = useState(''); // product _id to confirm into, '' = create new
-  const [scanImeiValue, setScanImeiValue] = useState(''); // hardware-scanner text input
-  const [highlightId, setHighlightId] = useState(null);
 
   const load = async () => {
     const { data } = await api.get('/products', { params: { search, category: categoryFilter || undefined } });
@@ -95,83 +87,6 @@ export default function Products() {
       setStockReportOpen(true);
     } catch (e) { toast.error(e.response?.data?.message || 'Failed to build stock report'); }
     setStockReportLoading(false);
-  };
-
-  // ---- Scan IMEI with AI ----
-  const openAiScan = () => { setAiScanOpen(true); setAiScanResult(null); setAiScanTarget(''); setScanImeiValue(''); };
-
-  const runAiScan = async (file) => {
-    if (!file) return;
-    setAiScanBusy(true); setAiScanResult(null);
-    try {
-      const fd = new FormData();
-      fd.append('image', file);
-      const { data } = await api.post('/products/scan-ai', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      setAiScanResult(data.data);
-      setAiScanTarget(data.data.matchedProduct?._id || '');
-    } catch (e) { toast.error(e.response?.data?.message || 'Scan failed'); }
-    setAiScanBusy(false);
-  };
-
-  // Hardware barcode/IMEI scanner path — no photo involved, so matching is done
-  // by TAC prefix against units this shop has already entered (see backend note).
-  const runScanImei = async () => {
-    const imei = scanImeiValue.trim();
-    if (!imei) return;
-    setAiScanBusy(true); setAiScanResult(null);
-    try {
-      const { data } = await api.post('/products/scan-imei', { imei });
-      const p = data.data.matchedProduct;
-      setAiScanResult({
-        extracted: { name: p?.name || '', brand: p?.brand || '', storage: p?.storage || '', color: p?.color || '', imei1: imei, imei2: '' },
-        matchedProduct: p, matchCount: data.data.matchCount,
-      });
-      setAiScanTarget(p?._id || '');
-      setScanImeiValue('');
-    } catch (e) { toast.error(e.response?.data?.message || 'Scan failed'); }
-    setAiScanBusy(false);
-  };
-
-  const setExtractedField = (k, v) => setAiScanResult((r) => ({ ...r, extracted: { ...r.extracted, [k]: v } }));
-
-  const highlightRow = (id) => {
-    setHighlightId(id);
-    setTimeout(() => setHighlightId((cur) => (cur === id ? null : cur)), 4000);
-  };
-
-  // Confirmed match: add the scanned IMEI to the chosen existing product, then
-  // clear filters so the (possibly filtered-out) row is guaranteed visible and highlighted.
-  const confirmAiScanMatch = async () => {
-    const { extracted } = aiScanResult;
-    if (!extracted.imei1 && !extracted.imei2) return toast.error('No IMEI was read from this photo to add');
-    try {
-      await api.post('/units', { product: aiScanTarget, units: [{ imei1: extracted.imei1, imei2: extracted.imei2 }] });
-      toast.success('IMEI added');
-      setAiScanOpen(false);
-      setSearch(''); setCategoryFilter('');
-      await load();
-      highlightRow(aiScanTarget);
-    } catch (e) { toast.error(e.response?.data?.message || 'Could not add this IMEI'); }
-  };
-
-  // No confident match (or the owner picked "create new") — open the normal Add
-  // Product flow pre-filled with what AI read, for full manual review before saving.
-  const createFromAiScan = () => {
-    const { extracted } = aiScanResult;
-    setItems([{
-      ...emptyItem,
-      name: extracted.name || '',
-      brand: extracted.brand || '',
-      storage: extracted.storage || '',
-      color: extracted.color || '',
-      category: isMobile ? 'Mobile' : (business?.type === 'pharmacy' ? 'Medicine' : 'General'),
-      trackSerial: isMobile,
-      imeis: [extracted.imei1, extracted.imei2].filter(Boolean).join('\n'),
-    }]);
-    setSupplier(emptySupplier); setPurchase(emptyPurchase);
-    setEditId(null);
-    setAiScanOpen(false);
-    setModal(true);
   };
 
   // Scan/enter a barcode: if it matches an existing product, don't create a new
@@ -350,7 +265,6 @@ export default function Products() {
         <h1 className="text-2xl font-bold">Products</h1>
         <div className="flex gap-2 flex-wrap">
           <button className="btn-ghost" disabled={stockReportLoading} onClick={openStockReport}><Printer size={18} /> Stock Print</button>
-          {serialEnabled && <button className="btn-ghost" onClick={openAiScan}><Sparkles size={18} className="text-brand-500" /> Scan / Add IMEI</button>}
           <button className="btn-primary" onClick={openNew}><Plus size={18} /> Add Product</button>
         </div>
       </div>
@@ -358,7 +272,7 @@ export default function Products() {
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1 max-w-sm">
           <Search size={18} className="absolute left-3 top-2.5 text-slate-400" />
-          <input className="input pl-10" placeholder={serialEnabled ? 'Search name / SKU / barcode...' : 'Search name / SKU...'} value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input className="input pl-10" placeholder={serialEnabled ? 'Search name / SKU / barcode / IMEI...' : 'Search name / SKU...'} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
         <select className="input sm:!w-52" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
           <option value="">All Categories</option>
@@ -378,7 +292,7 @@ export default function Products() {
         )}
       </div>
 
-      <DataTable columns={columns} rows={products} rowClassName={(r) => r._id === highlightId ? '!bg-brand-50 dark:!bg-brand-900/30 ring-2 ring-inset ring-brand-500' : ''} />
+      <DataTable columns={columns} rows={products} />
       {/* shared combobox options for the Category field (Edit form + create Item blocks) */}
       <datalist id="category-options">{categoryOptions.map((c) => <option key={c} value={c} />)}</datalist>
 
@@ -511,75 +425,6 @@ export default function Products() {
       <PrintWrapper open={stockReportOpen} onClose={() => setStockReportOpen(false)} title="Stock Report">
         {stockReport && <StockReport business={business} category={stockReport.category} groups={stockReport.groups} />}
       </PrintWrapper>
-
-      {/* Scan IMEI with AI — reads a photo, suggests a match, but nothing is
-          saved until explicitly confirmed below */}
-      <Modal open={aiScanOpen} onClose={() => setAiScanOpen(false)} title="Scan / Add IMEI" size="lg"
-        footer={aiScanResult ? (
-          <>
-            <button className="btn-ghost" onClick={() => setAiScanOpen(false)}>Cancel</button>
-            <button className="btn-primary" onClick={aiScanTarget ? confirmAiScanMatch : createFromAiScan}>
-              {aiScanTarget ? 'Confirm & Add IMEI' : 'Create New Product'}
-            </button>
-          </>
-        ) : (
-          <button className="btn-ghost" onClick={() => setAiScanOpen(false)}>Cancel</button>
-        )}>
-        <div className="space-y-4">
-          <div>
-            <label className="label">Scan with your barcode/IMEI scanner</label>
-            <div className="flex gap-2">
-              <input
-                autoFocus className="input font-mono" placeholder="Scan or type IMEI, then Enter…"
-                value={scanImeiValue} onChange={(e) => setScanImeiValue(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') runScanImei(); }}
-              />
-              <button className="btn-primary shrink-0" onClick={runScanImei}>Scan</button>
-            </div>
-            <p className="text-xs text-slate-400 mt-1">Matches against units this shop has already entered for the same model. New models with no history yet won't match — pick or create the product manually below.</p>
-          </div>
-
-          <div className="text-center text-xs text-slate-400">— OR —</div>
-
-          <div>
-            <label className="label">Scan a photo with AI (for a brand-new model)</label>
-            <input type="file" accept="image/*" capture="environment" className="input" onChange={(e) => runAiScan(e.target.files?.[0])} />
-            <p className="text-xs text-slate-400 mt-1">Take a clear photo of the phone, its box, or the IMEI sticker — AI reads the model name and IMEI off it.</p>
-          </div>
-          {aiScanBusy && <p className="text-sm text-brand-600">Reading…</p>}
-
-          {aiScanResult && (
-            <div className="space-y-3 border-t border-slate-200 dark:border-slate-700 pt-3">
-              <p className="text-sm font-semibold">Review before saving (correct anything wrong):</p>
-              <div className="grid grid-cols-2 gap-2">
-                <div><label className="label">Name</label><input className="input" value={aiScanResult.extracted.name} onChange={(e) => setExtractedField('name', e.target.value)} /></div>
-                <div><label className="label">Brand</label><input className="input" value={aiScanResult.extracted.brand} onChange={(e) => setExtractedField('brand', e.target.value)} /></div>
-                <div><label className="label">Storage</label><input className="input" value={aiScanResult.extracted.storage} onChange={(e) => setExtractedField('storage', e.target.value)} /></div>
-                <div><label className="label">Color</label><input className="input" value={aiScanResult.extracted.color} onChange={(e) => setExtractedField('color', e.target.value)} /></div>
-                <div><label className="label">IMEI 1</label><input className="input font-mono" value={aiScanResult.extracted.imei1} onChange={(e) => setExtractedField('imei1', e.target.value)} /></div>
-                <div><label className="label">IMEI 2</label><input className="input font-mono" value={aiScanResult.extracted.imei2} onChange={(e) => setExtractedField('imei2', e.target.value)} /></div>
-              </div>
-
-              <div className={`rounded-lg p-3 space-y-2 ${aiScanResult.matchedProduct ? 'bg-brand-50 dark:bg-brand-900/20' : 'bg-amber-50 dark:bg-amber-900/20'}`}>
-                {aiScanResult.matchedProduct ? (
-                  <p className="text-sm">
-                    Matched to <strong>{aiScanResult.matchedProduct.name}</strong>
-                    {aiScanResult.matchCount ? ` — ${aiScanResult.matchCount} other unit(s) of this exact model already on file` : ' (by name)'}.
-                    Confirm below, or change it if it's wrong.
-                  </p>
-                ) : (
-                  <p className="text-sm text-amber-700 dark:text-amber-400">No matching product found — pick one below if this is really existing stock, or leave it to create a new product.</p>
-                )}
-                <label className="label">Target Product</label>
-                <select className="input" value={aiScanTarget} onChange={(e) => setAiScanTarget(e.target.value)}>
-                  <option value="">— Create as New Product —</option>
-                  {products.map((p) => <option key={p._id} value={p._id}>{p.name}</option>)}
-                </select>
-              </div>
-            </div>
-          )}
-        </div>
-      </Modal>
     </div>
   );
 }
