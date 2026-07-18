@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Search, AlertTriangle, Barcode, ScanLine, Tag } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, AlertTriangle, Barcode, ScanLine, Tag, Printer } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios.js';
 import DataTable from '../components/ui/DataTable.jsx';
 import Modal from '../components/ui/Modal.jsx';
 import LabelPrintModal from '../components/print/LabelPrintModal.jsx';
+import PrintWrapper from '../components/print/PrintWrapper.jsx';
+import StockReport from '../components/print/StockReport.jsx';
 import { taka, fmtDate, expiryStatus, daysUntil } from '../utils/format.js';
 import { useConfirm } from '../context/ConfirmContext.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -52,6 +54,11 @@ export default function Products() {
   const [labelFor, setLabelFor] = useState(null); // product whose barcode labels are being printed
   const [scanCode, setScanCode] = useState('');
   const [saving, setSaving] = useState(false);
+  // Stock Print — one-click in-stock report grouped by supplier, respecting
+  // whatever category filter is currently active on this page.
+  const [stockReport, setStockReport] = useState(null); // { category, groups }
+  const [stockReportOpen, setStockReportOpen] = useState(false);
+  const [stockReportLoading, setStockReportLoading] = useState(false);
 
   const load = async () => {
     const { data } = await api.get('/products', { params: { search, category: categoryFilter || undefined } });
@@ -60,6 +67,27 @@ export default function Products() {
   };
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [search, categoryFilter]);
   useEffect(() => { api.get('/suppliers').then(({ data }) => setSupplierList(data.data.suppliers)).catch(() => {}); }, []);
+
+  // One click: every in-stock product (for the currently selected category, or
+  // all of them), grouped by supplier/dealer so it's clear whose stock is whose.
+  const openStockReport = async () => {
+    setStockReportLoading(true);
+    try {
+      const { data } = await api.get('/products', { params: { category: categoryFilter || undefined } });
+      const inStock = data.data.products.filter((p) => p.stock > 0);
+      const bySupplier = {};
+      for (const p of inStock) {
+        const key = p.supplier?.name || '— No Supplier —';
+        (bySupplier[key] ||= []).push(p);
+      }
+      const groups = Object.entries(bySupplier)
+        .map(([supplier, items]) => ({ supplier, items, qty: items.reduce((s, i) => s + i.stock, 0) }))
+        .sort((a, b) => b.qty - a.qty);
+      setStockReport({ category: categoryFilter, groups });
+      setStockReportOpen(true);
+    } catch (e) { toast.error(e.response?.data?.message || 'Failed to build stock report'); }
+    setStockReportLoading(false);
+  };
 
   // Scan/enter a barcode: if it matches an existing product, don't create a new
   // one — for IMEI-tracked products jump straight to adding a new device (req 1),
@@ -235,7 +263,10 @@ export default function Products() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Products</h1>
-        <button className="btn-primary" onClick={openNew}><Plus size={18} /> Add Product</button>
+        <div className="flex gap-2">
+          <button className="btn-ghost" disabled={stockReportLoading} onClick={openStockReport}><Printer size={18} /> Stock Print</button>
+          <button className="btn-primary" onClick={openNew}><Plus size={18} /> Add Product</button>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -390,6 +421,10 @@ export default function Products() {
 
       {unitsFor && <UnitsModal product={unitsFor} isMobile={isMobile} onClose={() => setUnitsFor(null)} onChanged={load} />}
       {labelFor && <LabelPrintModal product={labelFor} business={business} isMobile={isMobile} onClose={() => setLabelFor(null)} onChanged={load} />}
+
+      <PrintWrapper open={stockReportOpen} onClose={() => setStockReportOpen(false)} title="Stock Report">
+        {stockReport && <StockReport business={business} category={stockReport.category} groups={stockReport.groups} />}
+      </PrintWrapper>
     </div>
   );
 }

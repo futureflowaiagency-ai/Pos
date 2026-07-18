@@ -4,6 +4,7 @@ import { ok } from '../utils/apiResponse.js';
 import { tenantFilter } from '../middleware/tenant.js';
 import { logActivity } from '../middleware/activityLogger.js';
 import { parseCSV } from '../utils/csv.js';
+import { parseUploadedFile } from '../utils/smartImport.js';
 import ImportExportLog from '../models/ImportExportLog.js';
 import Customer from '../models/Customer.js';
 import Supplier from '../models/Supplier.js';
@@ -14,6 +15,7 @@ import PhoneUnit from '../models/PhoneUnit.js';
 const TENDERS = ['cash', 'bank', 'bkash', 'nagad', 'rocket', 'card'];
 const toBool = (v) => ['true', '1', 'yes', 'y'].includes(String(v ?? '').trim().toLowerCase());
 const num = (v, def) => { const n = Number(v); return Number.isFinite(n) ? n : def; };
+const escapeRegex = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 // header row + one example row — lets a shop owner migrating from another
 // system know exactly which columns to fill in (req 13 "নির্ধারিত Template").
@@ -166,6 +168,116 @@ export const commitImport = asyncHandler(async (req, res) => {
   await ImportExportLog.create({ business: req.businessId, action: 'import', entity, format: 'csv', recordCount: createdCount + updatedCount, errorCount: errors.length, createdBy: req.user._id });
   await logActivity(req, { action: 'IMPORT_DATA', entity: 'Import', meta: { entity, created: createdCount, updated: updatedCount, errors: errors.length } });
   ok(res, { created: createdCount, updated: updatedCount, skipped: errors.length, errors: errors.slice(0, 200) }, 'Import complete');
+});
+
+// Turns a raw parsed row (from any file shape) into clean product-migration
+// data, or an error message. Stock/prices default to 0 when the source file
+// doesn't have them (e.g. this shop's old software never recorded prices) —
+// the owner fills those in afterward from the normal Edit Product screen.
+function normalizeSmartRow(row) {
+  const name = String(row.name || '').trim();
+  if (!name) return { ok: false, message: 'Missing product name' };
+  const category = String(row.category || '').trim().replace(/^\(+\s*/, '').replace(/\s*\)+$/, '').trim() || 'General';
+  return {
+    ok: true,
+    data: {
+      supplierName: String(row.supplierName || '').trim(),
+      name,
+      category,
+      stock: Math.max(0, Math.round(num(row.stock, 0))),
+      barcode: String(row.barcode || '').trim(),
+      sku: String(row.sku || '').trim(),
+      purchasePrice: Math.max(0, num(row.purchasePrice, 0)),
+      sellingPrice: Math.max(0, num(row.sellingPrice, 0)),
+    },
+  };
+}
+
+function runSmartValidation(req) {
+  if (!req.file) throw new ApiError(400, 'No file uploaded');
+  const { rows, format } = parseUploadedFile(req.file.buffer, req.file.originalname);
+  if (!rows.length) throw new ApiError(400, 'Could not find any product rows in this file — check it has a Name/Item column');
+  const results = rows.map(normalizeSmartRow);
+  const errors = [];
+  const valid = [];
+  results.forEach((r, i) => { if (r.ok) valid.push(r.data); else errors.push({ row: i + 2, message: r.message }); });
+  return { format, total: rows.length, valid, errors };
+}
+
+// @route POST /api/import/smart/preview  (multipart, field: file)
+// Dry-run for the "Smart Stock Import" — accepts any file shape (this shop's
+// old-software HTML-as-.xls export, a real .xlsx/.xls, or CSV/TXT with
+// whatever column names) and previews what it understood before writing anything.
+export const smartImportPreview = asyncHandler(async (req, res) => {
+  const { format, total, valid, errors } = runSmartValidation(req);
+  const suppliers = [...new Set(valid.map((v) => v.supplierName).filter(Boolean))].sort();
+  const withPrices = valid.some((v) => v.purchasePrice > 0 || v.sellingPrice > 0);
+  ok(res, {
+    format, total, validCount: valid.length, errorCount: errors.length,
+    errors: errors.slice(0, 200), suppliers, sample: valid.slice(0, 20), withPrices,
+  });
+});
+
+// @route POST /api/import/smart/commit  (multipart, field: file)
+// Find-or-creates a Supplier per distinct name, upserts each Product by
+// name+category (no barcode/SKU in this kind of legacy data), sets stock and
+// links the supplier. This is a historical-data migration, not a live
+// transaction — no Purchase/Expense is booked (unlike the Add-Product-with-
+// supplier flow), since there's no real payment happening right now.
+export const smartImportCommit = asyncHandler(async (req, res) => {
+  const { valid, errors } = runSmartValidation(req);
+
+  const supplierCache = new Map();
+  let createdProducts = 0, updatedProducts = 0, createdSuppliers = 0;
+
+  for (const data of valid) {
+    let supplierDoc = null;
+    if (data.supplierName) {
+      const key = data.supplierName.toLowerCase();
+      if (supplierCache.has(key)) {
+        supplierDoc = supplierCache.get(key);
+      } else {
+        supplierDoc = await Supplier.findOne(tenantFilter(req, { name: { $regex: `^${escapeRegex(data.supplierName)}$`, $options: 'i' } }));
+        if (!supplierDoc) {
+          supplierDoc = await Supplier.create({ business: req.businessId, name: data.supplierName });
+          createdSuppliers++;
+        }
+        supplierCache.set(key, supplierDoc);
+      }
+    }
+
+    const existing = await Product.findOne(tenantFilter(req, {
+      name: { $regex: `^${escapeRegex(data.name)}$`, $options: 'i' }, category: data.category,
+    }));
+    if (existing) {
+      existing.stock = data.stock;
+      if (supplierDoc) existing.supplier = supplierDoc._id;
+      if (data.purchasePrice) existing.purchasePrice = data.purchasePrice;
+      if (data.sellingPrice) existing.sellingPrice = data.sellingPrice;
+      if (data.barcode) existing.barcode = data.barcode;
+      if (data.sku) existing.sku = data.sku;
+      await existing.save();
+      updatedProducts++;
+    } else {
+      await Product.create({
+        business: req.businessId, name: data.name, category: data.category, stock: data.stock,
+        purchasePrice: data.purchasePrice, sellingPrice: data.sellingPrice,
+        barcode: data.barcode || undefined, sku: data.sku,
+        supplier: supplierDoc?._id || null,
+      });
+      createdProducts++;
+    }
+  }
+
+  await ImportExportLog.create({
+    business: req.businessId, action: 'import', entity: 'smart-products', format: 'auto',
+    recordCount: createdProducts + updatedProducts, errorCount: errors.length, createdBy: req.user._id,
+  });
+  await logActivity(req, {
+    action: 'IMPORT_DATA', entity: 'Import',
+    meta: { entity: 'smart-products', created: createdProducts, updated: updatedProducts, suppliersCreated: createdSuppliers, errors: errors.length },
+  });
+  ok(res, { createdProducts, updatedProducts, createdSuppliers, skipped: errors.length, errors: errors.slice(0, 200) }, 'Import complete');
 });
 
 // @route POST /api/import/backup/restore  body: { json }

@@ -14,3 +14,12 @@ export const uploadImage = multer({
   fileFilter,
   limits: { fileSize: 3 * 1024 * 1024 }, // 3 MB
 }).single('image');
+
+// Generic data-file upload (Smart Stock Import) — no mimetype filter since
+// browsers report all sorts of things for .xls/.csv/.txt (and this shop's old
+// software exports HTML content with a .xls extension), so the real format is
+// sniffed server-side from the content instead.
+export const uploadDataFile = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB — matches the raised JSON body limit
+}).single('file');

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Download, Upload, DatabaseBackup, History, FileText, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Download, Upload, DatabaseBackup, History, FileText, CheckCircle2, AlertTriangle, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios.js';
 import DataTable from '../components/ui/DataTable.jsx';
@@ -48,6 +48,12 @@ export default function ImportExport() {
   // restore
   const [restoreFile, setRestoreFile] = useState(null);
   const [restoring, setRestoring] = useState(false);
+
+  // Smart Stock Import — any file shape (this shop's old-software export,
+  // real .xlsx/.xls, or CSV/TXT with whatever column names)
+  const [smartFile, setSmartFile] = useState(null);
+  const [smartResult, setSmartResult] = useState(null);
+  const [smartBusy, setSmartBusy] = useState(false);
 
   const loadHistory = async () => {
     const { data } = await api.get('/export/history/list');
@@ -126,6 +132,31 @@ export default function ImportExport() {
       loadHistory();
     } catch (e) { toast.error(e.response?.data?.message || 'Import failed'); }
     setUnitBusy(false);
+  };
+
+  const smartPreview = async () => {
+    if (!smartFile) return toast.error('Choose a file first');
+    setSmartBusy(true); setSmartResult(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', smartFile);
+      const { data } = await api.post('/import/smart/preview', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setSmartResult(data.data);
+    } catch (e) { toast.error(e.response?.data?.message || 'Could not read this file'); }
+    setSmartBusy(false);
+  };
+  const smartCommit = async () => {
+    if (!smartFile) return;
+    setSmartBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', smartFile);
+      const { data } = await api.post('/import/smart/commit', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      toast.success(`Imported: ${data.data.createdProducts} new product(s), ${data.data.updatedProducts} updated, ${data.data.createdSuppliers} new supplier(s)`);
+      setSmartFile(null); setSmartResult(null);
+      loadHistory();
+    } catch (e) { toast.error(e.response?.data?.message || 'Import failed'); }
+    setSmartBusy(false);
   };
 
   const runRestore = async () => {
@@ -210,6 +241,64 @@ export default function ImportExport() {
             )}
             <button className="btn-primary" disabled={committing || result.validCount === 0} onClick={commitFile}>
               {committing ? 'Importing…' : `Import ${result.validCount} valid row(s)`}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Smart Stock Import — auto-detects the file shape instead of requiring a fixed template */}
+      <div className="card p-4 space-y-3">
+        <h3 className="font-semibold flex items-center gap-2"><Sparkles size={18} className="text-brand-600" /> Smart Stock Import</h3>
+        <p className="text-sm text-slate-500">
+          Upload a stock file from any system — Excel (.xlsx/.xls), CSV, or plain text — in whatever column layout it already has.
+          This automatically detects supplier/dealer groupings and column names (Item/Name, Category, Stock/Qty, Supplier/Dealer, prices)
+          instead of requiring you to reformat it into a fixed template first.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="label">File</label>
+            <input type="file" accept=".xlsx,.xls,.csv,.txt" className="input" onChange={(e) => { setSmartFile(e.target.files?.[0] || null); setSmartResult(null); }} />
+          </div>
+          <button className="btn-ghost" disabled={smartBusy} onClick={smartPreview}>{smartBusy ? 'Reading…' : 'Preview'}</button>
+        </div>
+
+        {smartResult && (
+          <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-3 space-y-2">
+            <div className="flex items-center gap-4 text-sm flex-wrap">
+              <span className="badge bg-brand-100 text-brand-700 capitalize">{smartResult.format.replace(/-/g, ' ')}</span>
+              <span className="flex items-center gap-1 text-green-600"><CheckCircle2 size={15} /> {smartResult.validCount} product row(s) understood</span>
+              {smartResult.errorCount > 0 && <span className="flex items-center gap-1 text-red-500"><AlertTriangle size={15} /> {smartResult.errorCount} skipped</span>}
+              <span className="text-slate-400">of {smartResult.total} row(s)</span>
+            </div>
+            {smartResult.suppliers.length > 0 && (
+              <p className="text-xs text-slate-500">Suppliers/dealers found: {smartResult.suppliers.join(', ')}</p>
+            )}
+            {!smartResult.withPrices && (
+              <p className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle size={13} /> This file has no purchase/selling prices — imported products will start at ৳0 until you set prices from Edit Product.</p>
+            )}
+            {smartResult.sample.length > 0 && (
+              <div className="max-h-48 overflow-y-auto text-xs border border-slate-200 dark:border-slate-700 rounded-lg">
+                <table className="w-full">
+                  <thead className="bg-slate-100 dark:bg-slate-700 text-left"><tr><th className="px-2 py-1">Product</th><th className="px-2 py-1">Category</th><th className="px-2 py-1">Supplier</th><th className="px-2 py-1 text-right">Stock</th></tr></thead>
+                  <tbody>{smartResult.sample.map((r, i) => (
+                    <tr key={i} className="border-t border-slate-200 dark:border-slate-700">
+                      <td className="px-2 py-1">{r.name}</td><td className="px-2 py-1">{r.category}</td><td className="px-2 py-1">{r.supplierName || '—'}</td><td className="px-2 py-1 text-right">{r.stock}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+                {smartResult.validCount > smartResult.sample.length && <p className="text-center py-1 text-slate-400">…and {smartResult.validCount - smartResult.sample.length} more</p>}
+              </div>
+            )}
+            {smartResult.errors.length > 0 && (
+              <div className="max-h-32 overflow-y-auto text-xs border border-slate-200 dark:border-slate-700 rounded-lg">
+                <table className="w-full">
+                  <thead className="bg-slate-100 dark:bg-slate-700 text-left"><tr><th className="px-2 py-1">Row</th><th className="px-2 py-1">Reason</th></tr></thead>
+                  <tbody>{smartResult.errors.map((e, i) => <tr key={i} className="border-t border-slate-200 dark:border-slate-700"><td className="px-2 py-1">{e.row}</td><td className="px-2 py-1">{e.message}</td></tr>)}</tbody>
+                </table>
+              </div>
+            )}
+            <button className="btn-primary" disabled={smartBusy || smartResult.validCount === 0} onClick={smartCommit}>
+              {smartBusy ? 'Importing…' : `Import ${smartResult.validCount} product(s)`}
             </button>
           </div>
         )}
